@@ -66,12 +66,14 @@ service cloud.firestore {
         allow create: if isOwner(uid)
           && inc().keys().hasOnly([
             'id', 'type', 'date', 'timezone', 'questionKey', 'questionLabel',
-            'answer', 'text', 'strength', 'createdAt', 'lockedAt', 'contentHash',
+            'answer', 'text', 'strength', 'createdAt', 'clientCreatedAt', 'lockedAt', 'contentHash',
             'remainingMinutes', 'outcome', 'outcomeNote', 'resolvedAt', 'deletedAt'
           ])
           && inc().id == entryId
           && inc().createdAt == request.time
           && inc().lockedAt == request.time
+          && inc().clientCreatedAt is string
+          && inc().clientCreatedAt.size() == 24
           && inc().outcome == 'pending'
           && inc().resolvedAt == null
           && inc().outcomeNote == null

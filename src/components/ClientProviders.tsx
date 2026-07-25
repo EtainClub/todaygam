@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { ensureAnonymousUser, observeAuth } from "@/lib/firebase/auth";
 import { isFirebaseConfigured } from "@/lib/firebase/client";
 import {
@@ -8,6 +8,7 @@ import {
   observeCurrentMonthDays,
   observeRollup,
   observeSystemConfig,
+  loadRemotePreferences,
   registerMessagingToken,
   syncPreferencesRemote,
   takeQueuedResolutions,
@@ -27,7 +28,9 @@ export function ClientProviders({ children }: { children: React.ReactNode }) {
   const setRemoteRollup = useAppStore((state) => state.setRemoteRollup);
   const setRemoteDays = useAppStore((state) => state.setRemoteDays);
   const mergeRemoteEntries = useAppStore((state) => state.mergeRemoteEntries);
+  const applyRemotePreferences = useAppStore((state) => state.applyRemotePreferences);
   const resolveEntry = useAppStore((state) => state.resolveEntry);
+  const [preferencesReadyUid, setPreferencesReadyUid] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isFirebaseConfigured()) return;
@@ -46,6 +49,23 @@ export function ClientProviders({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!firebaseUid) return;
+    let mounted = true;
+    void loadRemotePreferences(firebaseUid)
+      .then((preferences) => {
+        if (!mounted) return;
+        if (preferences) applyRemotePreferences(preferences);
+        setPreferencesReadyUid(firebaseUid);
+      })
+      .catch((error) => {
+        console.error("원격 설정을 불러오지 못했습니다.", error);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, [applyRemotePreferences, firebaseUid]);
+
+  useEffect(() => {
+    if (!firebaseUid) return;
     const stopEntries = observeEntries(firebaseUid, timezone, mergeRemoteEntries);
     const stopRollup = observeRollup(firebaseUid, setRemoteRollup);
     const stopDays = observeCurrentMonthDays(firebaseUid, timezone, setRemoteDays);
@@ -59,7 +79,7 @@ export function ClientProviders({ children }: { children: React.ReactNode }) {
   }, [firebaseUid, mergeRemoteEntries, setQuestionCatalog, setRemoteDays, setRemoteRollup, timezone]);
 
   useEffect(() => {
-    if (!hydrated || !firebaseUid) return;
+    if (!hydrated || !firebaseUid || preferencesReadyUid !== firebaseUid) return;
     void syncPreferencesRemote({
       uid: firebaseUid,
       timezone,
@@ -71,7 +91,7 @@ export function ClientProviders({ children }: { children: React.ReactNode }) {
     if (notify.morningEnabled || notify.eveningEnabled) {
       void registerMessagingToken(firebaseUid);
     }
-  }, [catalog, firebaseUid, hydrated, notify, onboarded, selectedQuestionKeys, timezone]);
+  }, [catalog, firebaseUid, hydrated, notify, onboarded, preferencesReadyUid, selectedQuestionKeys, timezone]);
 
   useEffect(() => {
     if (!hydrated) return;

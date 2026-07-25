@@ -30,6 +30,12 @@ interface AppState {
   setRemoteRollup: (rollup: Rollup | null) => void;
   setRemoteDays: (days: DaySummary[]) => void;
   mergeRemoteEntries: (entries: Entry[]) => void;
+  applyRemotePreferences: (values: {
+    onboarded: boolean;
+    timezone: string | null;
+    notify: NotifySettings | null;
+    selectedQuestionKeys: string[];
+  }) => void;
   completeOnboarding: (keys: string[], notify: NotifySettings) => void;
   addFixedEntry: (questionKey: string, answer: Answer, strength: Strength) => Promise<Entry>;
   addFreeEntry: (text: string, strength: Strength) => Promise<Entry>;
@@ -63,6 +69,7 @@ async function makeEntry(
   values: Pick<Entry, "type" | "questionKey" | "questionLabel" | "answer" | "text" | "strength">,
 ): Promise<Entry> {
   const createdAt = new Date().toISOString();
+  const clientCreatedAt = createdAt;
   const date = todayId(timezone);
   const contentHash = await computeHash({
     v: 1,
@@ -72,7 +79,7 @@ async function makeEntry(
     answer: values.answer,
     text: values.text,
     strength: values.strength,
-    createdAt,
+    createdAt: clientCreatedAt,
   });
   return {
     id: makeId(),
@@ -80,6 +87,7 @@ async function makeEntry(
     timezone,
     ...values,
     createdAt,
+    clientCreatedAt,
     lockedAt: createdAt,
     contentHash,
     remainingMinutes: minutesUntilMidnight(timezone),
@@ -119,6 +127,16 @@ export const useAppStore = create<AppState>()(
           remoteEntries.forEach((entry) => merged.set(entry.id, entry));
           return { entries: Array.from(merged.values()) };
         }),
+      applyRemotePreferences: (values) =>
+        set((state) => ({
+          onboarded: values.onboarded || state.onboarded,
+          timezone: values.timezone || state.timezone,
+          notify: values.notify ? { ...state.notify, ...values.notify } : state.notify,
+          selectedQuestionKeys:
+            values.selectedQuestionKeys.length === 3
+              ? values.selectedQuestionKeys
+              : state.selectedQuestionKeys,
+        })),
       completeOnboarding: (selectedQuestionKeys, notify) =>
         set({ onboarded: true, selectedQuestionKeys, notify }),
       addFixedEntry: async (questionKey, answer, strength) => {
@@ -224,6 +242,17 @@ export const useAppStore = create<AppState>()(
         reviewDates: state.reviewDates,
         dismissedYesterdayDates: state.dismissedYesterdayDates,
       }),
+      merge: (persistedState, currentState) => {
+        const persisted = persistedState as Partial<AppState>;
+        return {
+          ...currentState,
+          ...persisted,
+          entries: (persisted.entries ?? []).map((entry) => ({
+            ...entry,
+            clientCreatedAt: entry.clientCreatedAt ?? entry.createdAt,
+          })),
+        };
+      },
       onRehydrateStorage: () => (state) => state?.setHydrated(true),
     },
   ),

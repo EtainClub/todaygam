@@ -30,6 +30,7 @@ function validEntry(id = "entry-1", patch = {}) {
     text: null,
     strength: "medium",
     createdAt: serverTimestamp(),
+    clientCreatedAt: "2026-07-25T00:00:00.000Z",
     lockedAt: serverTimestamp(),
     contentHash: `sha256:${"a".repeat(64)}`,
     remainingMinutes: 710,
@@ -176,5 +177,12 @@ describe("immutable entries", { concurrency: false }, () => {
     });
     const db = environment.unauthenticatedContext().firestore();
     await assert.rejects(() => assertSucceeds(getDoc(entryRef(db))));
+  });
+
+  it("18. requires the client timestamp used by the content hash", async () => {
+    const db = dbAs("alice");
+    const value = validEntry();
+    delete value.clientCreatedAt;
+    await assertFails(setDoc(entryRef(db), value));
   });
 });

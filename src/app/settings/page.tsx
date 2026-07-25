@@ -4,9 +4,13 @@ import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import Link from "next/link";
 import { useState } from "react";
 import { ArrowLeftIcon, BellIcon, CheckIcon, ChevronRightIcon, CloudIcon, DownloadIcon, TrashIcon } from "@/components/Icons";
-import { linkGoogleAccount } from "@/lib/firebase/auth";
+import { connectGoogleAccount } from "@/lib/firebase/auth";
 import { isFirebaseConfigured } from "@/lib/firebase/client";
-import { deleteUserDataRemote } from "@/lib/firebase/sync";
+import {
+  deleteUserDataRemote,
+  fetchFullExportRemote,
+  migrateLocalEntriesRemote,
+} from "@/lib/firebase/sync";
 import { useAppStore } from "@/lib/store";
 import { normalizeQuarterHour } from "@/lib/day";
 
@@ -22,12 +26,15 @@ export default function SettingsPage() {
     questionCatalog,
     setTimezone,
     firebaseUid,
+    accountLinked,
     deleteAllData,
   } = useAppStore();
   const [questionEditor, setQuestionEditor] = useState(false);
   const [draftQuestions, setDraftQuestions] = useState(selectedQuestionKeys);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [accountMessage, setAccountMessage] = useState("");
+  const [exportMessage, setExportMessage] = useState("");
+  const [exporting, setExporting] = useState(false);
 
   async function toggleNotification(key: "morningEnabled" | "eveningEnabled" | "unresolvedEnabled") {
     if (!notify[key] && key !== "unresolvedEnabled" && "Notification" in window) {
@@ -37,21 +44,46 @@ export default function SettingsPage() {
     updateNotify({ [key]: !notify[key] });
   }
 
-  function exportData() {
-    const payload = {
-      exportedAt: new Date().toISOString(),
-      version: 1,
-      timezone,
-      questions: selectedQuestionKeys,
-      entries,
-    };
-    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `oneulgam-${new Date().toISOString().slice(0, 10)}.json`;
-    link.click();
-    URL.revokeObjectURL(url);
+  async function exportData() {
+    if (exporting) return;
+    setExporting(true);
+    setExportMessage("");
+    try {
+      const remote = firebaseUid ? await fetchFullExportRemote(firebaseUid) : null;
+      const mergedEntries = new Map(
+        (remote?.entries ?? []).map((entry) => [entry.id, entry]),
+      );
+      entries.forEach((entry) => mergedEntries.set(entry.id, entry));
+      const payload = {
+        exportedAt: new Date().toISOString(),
+        version: 2,
+        source: remote ? "firebase-and-local" : "local",
+        timezone,
+        questions: selectedQuestionKeys,
+        entries: Array.from(mergedEntries.values()),
+        remote: remote
+          ? {
+              profile: remote.profile,
+              questions: remote.questions,
+              days: remote.days,
+              rollup: remote.rollup,
+              audit: remote.audit,
+            }
+          : null,
+      };
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `oneulgam-${new Date().toISOString().slice(0, 10)}.json`;
+      link.click();
+      URL.revokeObjectURL(url);
+      setExportMessage(`${mergedEntries.size}개 기록을 내보냈어요.`);
+    } catch {
+      setExportMessage("전체 기록을 가져오지 못했습니다. 인터넷 연결 후 다시 시도해 주세요.");
+    } finally {
+      setExporting(false);
+    }
   }
 
   async function linkAccount() {
@@ -60,8 +92,17 @@ export default function SettingsPage() {
       return;
     }
     try {
-      await linkGoogleAccount();
-      setAccountMessage("Google 계정에 안전하게 연결했어요.");
+      const result = await connectGoogleAccount();
+      const migrated = await migrateLocalEntriesRemote(result.user.uid, entries);
+      setAccountMessage(
+        result.mode === "signed-in"
+          ? `기존 Google 계정으로 로그인했습니다${migrated ? ` · 이 기기의 기록 ${migrated}개를 옮겼어요` : ""}.`
+          : result.mode === "linked"
+            ? `Google 계정에 연결했습니다${migrated ? ` · 기록 ${migrated}개를 동기화했어요` : ""}.`
+            : migrated
+              ? `누락된 기록 ${migrated}개를 동기화했어요.`
+              : "Google 계정 동기화가 최신 상태입니다.",
+      );
     } catch (error) {
       setAccountMessage(error instanceof Error ? error.message : "계정 연결에 실패했어요.");
     }
@@ -102,8 +143,8 @@ export default function SettingsPage() {
         <div className="settings-card">
           <div className="account-row">
             <span className="settings-row__icon"><CloudIcon size={19} /></span>
-            <span><strong>{firebaseUid ? "익명으로 동기화 중" : "이 기기에 저장 중"}</strong><small>{firebaseUid ? "Firebase 보안 규칙으로 보호됩니다." : "Firebase 키가 없어 로컬 모드로 동작합니다."}</small></span>
-            <button type="button" onClick={() => void linkAccount()}>계정 연결</button>
+            <span><strong>{accountLinked ? "Google 계정으로 동기화 중" : firebaseUid ? "익명으로 동기화 중" : "이 기기에 저장 중"}</strong><small>{firebaseUid ? "Firebase 보안 규칙으로 보호됩니다." : "Firebase 키가 없어 로컬 모드로 동작합니다."}</small></span>
+            <button type="button" onClick={() => void linkAccount()}>{accountLinked ? "동기화 확인" : "계정 연결"}</button>
           </div>
           {accountMessage && <p className="settings-message">{accountMessage}</p>}
         </div>
@@ -112,7 +153,8 @@ export default function SettingsPage() {
       <section className="settings-group">
         <h2>데이터</h2>
         <div className="settings-card">
-          <button type="button" className="data-row" onClick={exportData}><DownloadIcon size={19} /><span><strong>내 기록 내보내기</strong><small>JSON 파일 · {entries.length}개 기록</small></span><ChevronRightIcon size={18} /></button>
+          <button type="button" className="data-row" disabled={exporting} onClick={() => void exportData()}><DownloadIcon size={19} /><span><strong>{exporting ? "전체 기록 가져오는 중" : "내 기록 내보내기"}</strong><small>JSON 파일 · 서버의 전체 기록 포함</small></span><ChevronRightIcon size={18} /></button>
+          {exportMessage && <p className="settings-message">{exportMessage}</p>}
           <button type="button" className="data-row data-row--danger" onClick={() => setDeleteConfirm(true)}><TrashIcon size={19} /><span><strong>모든 기록 삭제</strong><small>이 기기의 오늘감 데이터를 지웁니다.</small></span><ChevronRightIcon size={18} /></button>
         </div>
       </section>

@@ -23,6 +23,7 @@ export interface Entry {
   text: string | null;
   strength: Strength;
   createdAt: string;
+  clientCreatedAt: string;
   lockedAt: string;
   contentHash: string;
   remainingMinutes: number;

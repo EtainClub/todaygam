@@ -17,6 +17,12 @@ describe("functions shared logic", () => {
     assert.equal(slotFor("Asia/Seoul", now), "01:05");
   });
 
+  it("matches unresolved reminder time in each user's local timezone", () => {
+    const now = new Date("2026-07-25T16:30:00.000Z");
+    assert.equal(slotFor("America/Los_Angeles", now), "09:30");
+    assert.equal(slotFor("Asia/Seoul", now), "01:30");
+  });
+
   it("expands Firestore field paths into merge-safe nested maps", () => {
     const increment = { operand: 1 };
     assert.deepEqual(

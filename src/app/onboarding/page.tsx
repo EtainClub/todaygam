@@ -7,6 +7,8 @@ import { BrandMark } from "@/components/BrandMark";
 import { BellIcon, CheckIcon } from "@/components/Icons";
 import { DEFAULT_QUESTION_KEYS } from "@/lib/catalog";
 import { normalizeQuarterHour } from "@/lib/day";
+import { connectGoogleAccount } from "@/lib/firebase/auth";
+import { isFirebaseConfigured } from "@/lib/firebase/client";
 import { useAppStore } from "@/lib/store";
 import type { NotifySettings } from "@/lib/types";
 
@@ -17,6 +19,7 @@ export default function OnboardingPage() {
   const onboarded = useAppStore((state) => state.onboarded);
   const completeOnboarding = useAppStore((state) => state.completeOnboarding);
   const questionCatalog = useAppStore((state) => state.questionCatalog);
+  const firebaseUid = useAppStore((state) => state.firebaseUid);
   const [step, setStep] = useState(1);
   const [selected, setSelected] = useState(DEFAULT_QUESTION_KEYS);
   const [notify, setNotify] = useState<NotifySettings>({
@@ -27,6 +30,7 @@ export default function OnboardingPage() {
     unresolvedEnabled: true,
   });
   const [iosGuide, setIosGuide] = useState(false);
+  const [accountMessage, setAccountMessage] = useState("");
 
   useEffect(() => {
     if (hydrated && onboarded) router.replace("/");
@@ -60,6 +64,19 @@ export default function OnboardingPage() {
     router.replace("/");
   }
 
+  async function continueWithGoogle() {
+    try {
+      const result = await connectGoogleAccount();
+      setAccountMessage(
+        result.mode === "signed-in"
+          ? "기존 기록을 불러오고 있어요."
+          : "Google 계정을 연결했어요. 온보딩을 계속해 주세요.",
+      );
+    } catch (error) {
+      setAccountMessage(error instanceof Error ? error.message : "Google 로그인에 실패했어요.");
+    }
+  }
+
   return (
     <main className="onboarding">
       <header><BrandMark /><span>{step} / 3</span></header>
@@ -84,6 +101,14 @@ export default function OnboardingPage() {
               <h1>결과가 나오기 전에<br />당신의 감을 기록합니다.</h1>
               <p className="onboarding__copy">아침에 3번 탭, 저녁에 3번 탭.<br />그게 전부입니다.</p>
               <button type="button" className="primary-button" onClick={() => setStep(2)}>다음</button>
+              {isFirebaseConfigured() && (
+                <>
+                  <button type="button" className="text-button onboarding-later" disabled={!firebaseUid} onClick={() => void continueWithGoogle()}>
+                    기존 Google 계정으로 이어하기
+                  </button>
+                  {accountMessage && <p className="settings-message">{accountMessage}</p>}
+                </>
+              )}
             </>
           )}
           {step === 2 && (

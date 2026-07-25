@@ -1,3 +1,5 @@
+import type { Entry } from "./types";
+
 export async function sha256Hex(value: string): Promise<string> {
   const bytes = new TextEncoder().encode(value);
   const digest = await crypto.subtle.digest("SHA-256", bytes);
@@ -17,4 +19,23 @@ export async function computeHash(input: {
   createdAt: string;
 }): Promise<string> {
   return `sha256:${await sha256Hex(JSON.stringify(input))}`;
+}
+
+export async function verifyEntryHash(
+  entry: Pick<
+    Entry,
+    "type" | "date" | "questionKey" | "answer" | "text" | "strength" | "clientCreatedAt" | "contentHash"
+  >,
+): Promise<boolean> {
+  const contentHash = await computeHash({
+    v: 1,
+    type: entry.type,
+    date: entry.date,
+    questionKey: entry.questionKey,
+    answer: entry.answer,
+    text: entry.text,
+    strength: entry.strength,
+    createdAt: entry.clientCreatedAt,
+  });
+  return contentHash === entry.contentHash;
 }

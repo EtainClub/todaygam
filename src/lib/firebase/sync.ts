@@ -5,7 +5,10 @@ import { getMessaging, getToken, isSupported } from "firebase/messaging";
 import {
   collection,
   doc,
+  getDoc,
+  getDocFromServer,
   getDocs,
+  getDocsFromServer,
   onSnapshot,
   query,
   serverTimestamp,
@@ -17,6 +20,7 @@ import {
 } from "firebase/firestore";
 import type { DaySummary, Entry, NotifySettings, Question, Rollup } from "../types";
 import { getFirebaseClient } from "./client";
+import { createEntryRemote, resolveEntryRemote } from "./entries";
 
 function toIso(value: Timestamp | string | null | undefined, fallback: string | null = null) {
   if (typeof value === "string") return value;
@@ -26,10 +30,13 @@ function toIso(value: Timestamp | string | null | undefined, fallback: string | 
 
 function mapEntry(id: string, data: DocumentData): Entry {
   const optimisticNow = new Date().toISOString();
+  const createdAt = toIso(data.createdAt, optimisticNow) ?? optimisticNow;
   return {
     ...(data as Entry),
     id,
-    createdAt: toIso(data.createdAt, optimisticNow) ?? optimisticNow,
+    createdAt,
+    clientCreatedAt:
+      typeof data.clientCreatedAt === "string" ? data.clientCreatedAt : createdAt,
     lockedAt: toIso(data.lockedAt, optimisticNow) ?? optimisticNow,
     resolvedAt: toIso(data.resolvedAt),
     deletedAt: toIso(data.deletedAt),
@@ -142,6 +149,34 @@ export function observeSystemConfig(callback: (questions: Question[]) => void) {
   });
 }
 
+export async function loadRemotePreferences(uid: string): Promise<{
+  onboarded: boolean;
+  timezone: string | null;
+  notify: NotifySettings | null;
+  selectedQuestionKeys: string[];
+} | null> {
+  const client = getFirebaseClient();
+  if (!client) return null;
+  const [profile, questions] = await Promise.all([
+    getDoc(doc(client.db, `users/${uid}`)),
+    getDocs(collection(client.db, `users/${uid}/questions`)),
+  ]);
+  if (!profile.exists()) return null;
+  const data = profile.data();
+  const onboarded = Boolean(data.onboardedAt);
+  const selectedQuestionKeys = questions.docs
+    .filter((item) => item.data().active === true)
+    .sort((a, b) => Number(a.data().order ?? 0) - Number(b.data().order ?? 0))
+    .map((item) => item.id)
+    .slice(0, 3);
+  return {
+    onboarded,
+    timezone: onboarded && typeof data.timezone === "string" ? data.timezone : null,
+    notify: onboarded ? data.notify as NotifySettings | null : null,
+    selectedQuestionKeys: onboarded ? selectedQuestionKeys : [],
+  };
+}
+
 export async function syncPreferencesRemote(values: {
   uid: string;
   timezone: string;
@@ -210,6 +245,77 @@ export async function syncPreferencesRemote(values: {
     });
   }
   await batch.commit();
+}
+
+export async function migrateLocalEntriesRemote(uid: string, entries: Entry[]): Promise<number> {
+  const client = getFirebaseClient();
+  if (!client) return 0;
+  const remote = await getDocs(collection(client.db, `users/${uid}/entries`));
+  const existingIds = new Set(remote.docs.map((item) => item.id));
+  let migrated = 0;
+
+  for (const entry of entries) {
+    if (existingIds.has(entry.id) || entry.deletedAt) continue;
+    const pending: Entry = {
+      ...entry,
+      clientCreatedAt: entry.clientCreatedAt || entry.createdAt,
+      outcome: "pending",
+      outcomeNote: null,
+      resolvedAt: null,
+      deletedAt: null,
+    };
+    await createEntryRemote(uid, pending);
+    if (entry.outcome !== "pending") {
+      await resolveEntryRemote(uid, pending, entry.outcome, entry.outcomeNote);
+    }
+    existingIds.add(entry.id);
+    migrated += 1;
+  }
+  return migrated;
+}
+
+function serializeFirestoreValue(value: unknown): unknown {
+  if (value && typeof value === "object" && "toDate" in value) {
+    const timestamp = value as { toDate: () => Date };
+    return timestamp.toDate().toISOString();
+  }
+  if (Array.isArray(value)) return value.map(serializeFirestoreValue);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, child]) => [key, serializeFirestoreValue(child)]),
+    );
+  }
+  return value;
+}
+
+export async function fetchFullExportRemote(uid: string) {
+  const client = getFirebaseClient();
+  if (!client) return null;
+  const [profile, questions, entries, days, rollup, audit] = await Promise.all([
+    getDocFromServer(doc(client.db, `users/${uid}`)),
+    getDocsFromServer(collection(client.db, `users/${uid}/questions`)),
+    getDocsFromServer(collection(client.db, `users/${uid}/entries`)),
+    getDocsFromServer(collection(client.db, `users/${uid}/days`)),
+    getDocFromServer(doc(client.db, `users/${uid}/stats/rollup`)),
+    getDocsFromServer(collection(client.db, `users/${uid}/audit`)),
+  ]);
+  return {
+    profile: profile.exists() ? serializeFirestoreValue(profile.data()) : null,
+    questions: questions.docs.map((item) => ({
+      id: item.id,
+      ...serializeFirestoreValue(item.data()) as Record<string, unknown>,
+    })),
+    entries: entries.docs.map((item) => mapEntry(item.id, item.data())),
+    days: days.docs.map((item) => ({
+      id: item.id,
+      ...serializeFirestoreValue(item.data()) as Record<string, unknown>,
+    })),
+    rollup: rollup.exists() ? serializeFirestoreValue(rollup.data()) : null,
+    audit: audit.docs.map((item) => ({
+      id: item.id,
+      ...serializeFirestoreValue(item.data()) as Record<string, unknown>,
+    })),
+  };
 }
 
 export async function markLinkPromptShownRemote(uid: string) {

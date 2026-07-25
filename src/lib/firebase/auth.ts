@@ -4,9 +4,11 @@ import {
   GoogleAuthProvider,
   linkWithPopup,
   onAuthStateChanged,
+  signInWithCredential,
   signInAnonymously,
   type User,
 } from "firebase/auth";
+import { FirebaseError } from "firebase/app";
 import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
 import { getFirebaseClient } from "./client";
 
@@ -38,16 +40,43 @@ export async function ensureAnonymousUser(timezone: string): Promise<User | null
   return user;
 }
 
-export async function linkGoogleAccount() {
+export async function connectGoogleAccount(): Promise<{
+  user: User;
+  mode: "linked" | "signed-in" | "already-linked";
+}> {
   const client = getFirebaseClient();
   if (!client?.auth.currentUser) throw new Error("Firebase가 설정되지 않았습니다.");
-  const result = await linkWithPopup(client.auth.currentUser, new GoogleAuthProvider());
+  if (!client.auth.currentUser.isAnonymous) {
+    return { user: client.auth.currentUser, mode: "already-linked" };
+  }
+
+  const provider = new GoogleAuthProvider();
+  let result;
+  let mode: "linked" | "signed-in" = "linked";
+  try {
+    result = await linkWithPopup(client.auth.currentUser, provider);
+  } catch (error) {
+    const canSignIn =
+      error instanceof FirebaseError &&
+      ["auth/credential-already-in-use", "auth/account-exists-with-different-credential"].includes(error.code);
+    const credential = error instanceof FirebaseError
+      ? GoogleAuthProvider.credentialFromError(error)
+      : null;
+    if (!canSignIn || !credential) throw error;
+    result = await signInWithCredential(client.auth, credential);
+    mode = "signed-in";
+  }
+
   await setDoc(
     doc(client.db, `users/${result.user.uid}`),
-    { authProvider: "google", updatedAt: serverTimestamp() },
+    {
+      authProvider: "google",
+      updatedAt: serverTimestamp(),
+      ...(mode === "linked" ? {} : { lastSignedInAt: serverTimestamp() }),
+    },
     { merge: true },
   );
-  return result.user;
+  return { user: result.user, mode };
 }
 
 export function observeAuth(callback: (user: User | null) => void) {

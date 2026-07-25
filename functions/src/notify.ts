@@ -18,14 +18,14 @@ export const sendEvening = onSchedule(
 );
 
 export const sendUnresolved = onSchedule(
-  { schedule: "30 9 * * *", timeZone: "Asia/Seoul" },
+  { schedule: "every 15 minutes", timeZone: "Etc/UTC" },
   async () => dispatchUnresolved(),
 );
 
 async function dispatch(kind: "morning" | "evening") {
   const flag = kind === "morning" ? "notify.morningEnabled" : "notify.eveningEnabled";
   const timeField = kind === "morning" ? "notify.morningHHmm" : "notify.eveningHHmm";
-  const users = await db.collection("users").where(flag, "==", true).limit(500).get();
+  const users = await db.collection("users").where(flag, "==", true).get();
 
   for (const user of users.docs) {
     const profile = user.data();
@@ -66,17 +66,31 @@ async function dispatchUnresolved() {
   const users = await db
     .collection("users")
     .where("notify.unresolvedEnabled", "==", true)
-    .limit(500)
     .get();
   const now = new Date();
   for (const user of users.docs) {
     const timeZone = user.data().timezone || "Asia/Seoul";
+    if (slotFor(timeZone, now) !== "09:30") continue;
     const yesterday = todayIdFor(timeZone, new Date(now.getTime() - 24 * 60 * 60 * 1000));
     const day = await db.doc(`users/${user.id}/days/${yesterday}`).get();
     const pending = day.data()?.pendingCount ?? 0;
     if (pending <= 0) continue;
     const tokens = await db.collection(`users/${user.id}/tokens`).get();
     if (tokens.empty) continue;
+    const notificationRef = db.doc(
+      `users/${user.id}/notificationLog/unresolved-${yesterday}`,
+    );
+    const claimed = await db.runTransaction(async (transaction) => {
+      const existing = await transaction.get(notificationRef);
+      if (existing.exists) return false;
+      transaction.set(notificationRef, {
+        kind: "unresolved",
+        date: yesterday,
+        claimedAt: new Date(),
+      });
+      return true;
+    });
+    if (!claimed) continue;
     await getMessaging().sendEachForMulticast({
       tokens: tokens.docs.map((token) => token.id),
       data: {

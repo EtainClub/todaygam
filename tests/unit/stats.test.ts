@@ -27,6 +27,7 @@ function entry(values: Partial<Entry>): Entry {
     text: null,
     strength: "medium",
     createdAt: "2026-07-25T00:00:00.000Z",
+    clientCreatedAt: "2026-07-25T00:00:00.000Z",
     lockedAt: "2026-07-25T00:00:00.000Z",
     contentHash: `sha256:${"a".repeat(64)}`,
     remainingMinutes: 100,

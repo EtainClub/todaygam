@@ -112,6 +112,7 @@ for (let dayIndex = 0; dayIndex < 60; dayIndex += 1) {
       text: null,
       strength: entryStrength,
       createdAt: Timestamp.fromDate(createdAt),
+      clientCreatedAt: createdAt.toISOString(),
       lockedAt: Timestamp.fromDate(createdAt),
       contentHash: `sha256:${createHash("sha256").update(canonical).digest("hex")}`,
       remainingMinutes: 960,

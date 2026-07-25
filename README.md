@@ -10,11 +10,11 @@
 - 전날 미확인 기록 1회 안내
 - 질문별 2×2 분할표, 차이값, 표본 게이트, 세기별 통계
 - 달력과 `?d=YYYY-MM-DD` 기록 시트
-- 알림/질문/계정/시간대/JSON 내보내기/전체 삭제 설정
+- 알림/질문/Google 계정 복원/시간대/전체 JSON 내보내기/전체 삭제 설정
 - 익명 Firebase Auth, Firestore 오프라인 캐시와 실시간 동기화
 - 통합 서비스 워커(앱 셸 캐시, FCM, 알림 액션 큐)
 - Cloud Functions 통계 rollup, 시간대별 알림, 계정 삭제
-- Firestore 규칙·인덱스와 17개 보안 규칙 테스트
+- Firestore 규칙·인덱스와 18개 보안 규칙 테스트
 
 Firebase 환경 키가 없을 때는 브라우저 `localStorage`를 사용하는 로컬 모드로 완전히 동작합니다. 키를 넣으면 같은 UI가 Firebase 동기화 모드로 전환됩니다.
 
@@ -41,7 +41,7 @@ pnpm build
 pnpm test:rules
 ```
 
-`pnpm test:rules`는 Java 21+와 Firestore Emulator가 필요합니다. 규칙 테스트는 문장/답/세기 불변, 단 한 번의 판정, 소프트 삭제, rollup 쓰기 차단 등 설계서의 17개 시나리오를 모두 다룹니다.
+`pnpm test:rules`는 Java 21+와 Firestore Emulator가 필요합니다. 규칙 테스트는 문장/답/세기 불변, 해시용 클라이언트 시각, 단 한 번의 판정, 소프트 삭제, rollup 쓰기 차단 등 설계서의 18개 시나리오를 모두 다룹니다.
 
 ## Firebase 에뮬레이터
 
