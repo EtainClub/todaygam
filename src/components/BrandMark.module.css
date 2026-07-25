@@ -1,0 +1,54 @@
+.root {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text);
+}
+
+.symbol {
+  position: relative;
+  display: inline-block;
+  width: 29px;
+  height: 29px;
+  border: 1.5px solid var(--accent);
+  border-radius: 50%;
+}
+
+.symbol::before {
+  position: absolute;
+  width: 7px;
+  height: 7px;
+  top: 6px;
+  left: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  content: "";
+}
+
+.symbol span {
+  position: absolute;
+  width: 1.5px;
+  height: 8px;
+  right: 7px;
+  bottom: 6px;
+  background: var(--accent);
+  transform-origin: bottom;
+}
+
+.symbol span:first-child {
+  transform: rotate(45deg);
+}
+
+.symbol span:last-child {
+  transform: rotate(-45deg);
+}
+
+.word {
+  font-size: 1.15rem;
+  font-weight: 760;
+  letter-spacing: -.06em;
+}
+
+.compact {
+  gap: 0;
+}

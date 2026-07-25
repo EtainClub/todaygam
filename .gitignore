@@ -2,6 +2,7 @@
 
 # dependencies
 /node_modules
+/functions/node_modules/
 /.pnp
 .pnp.*
 .yarn/*
@@ -23,6 +24,12 @@
 # misc
 .DS_Store
 *.pem
+service-account*.json
+public/firebase-config.js
+functions/lib/
+firestore-debug.log
+ui-debug.log
+seed/
 
 # debug
 npm-debug.log*

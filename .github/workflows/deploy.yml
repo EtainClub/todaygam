@@ -1,0 +1,50 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: production
+  cancel-in-progress: false
+
+jobs:
+  verify_and_deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm test
+      - run: pnpm --dir functions build
+      - run: pnpm --dir functions test
+      - run: pnpm build
+        env:
+          NEXT_PUBLIC_FB_API_KEY: ${{ secrets.FB_API_KEY }}
+          NEXT_PUBLIC_FB_AUTH_DOMAIN: ${{ secrets.FB_AUTH_DOMAIN }}
+          NEXT_PUBLIC_FB_PROJECT_ID: ${{ secrets.FB_PROJECT_ID }}
+          NEXT_PUBLIC_FB_STORAGE_BUCKET: ${{ secrets.FB_STORAGE_BUCKET }}
+          NEXT_PUBLIC_FB_MSG_SENDER_ID: ${{ secrets.FB_MSG_SENDER_ID }}
+          NEXT_PUBLIC_FB_APP_ID: ${{ secrets.FB_APP_ID }}
+          NEXT_PUBLIC_FB_VAPID_KEY: ${{ secrets.FB_VAPID_KEY }}
+          NEXT_PUBLIC_RECAPTCHA_SITE_KEY: ${{ secrets.RECAPTCHA_SITE_KEY }}
+      - uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+      - run: pnpm exec firebase deploy -P prod --only functions,firestore
+      - uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          channelId: live
+          projectId: oneulgam-prod

@@ -1,0 +1,154 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function isOwner(uid) { return signedIn() && request.auth.uid == uid; }
+    function inc() { return request.resource.data; }
+    function cur() { return resource.data; }
+    function changed() { return inc().diff(cur()).affectedKeys(); }
+    function validNote(value) {
+      return value == null || (value is string && value.size() <= 140);
+    }
+    function validNotify(value) {
+      return value.morningEnabled is bool
+        && value.eveningEnabled is bool
+        && value.unresolvedEnabled is bool
+        && value.morningHHmm is string
+        && value.eveningHHmm is string
+        && value.morningHHmm.matches('([01][0-9]|2[0-3]):(00|15|30|45)')
+        && value.eveningHHmm.matches('([01][0-9]|2[0-3]):(00|15|30|45)');
+    }
+
+    match /system/{docId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /users/{uid} {
+      allow get: if isOwner(uid);
+      allow list: if false;
+      allow create: if isOwner(uid)
+        && inc().createdAt == request.time
+        && inc().updatedAt == request.time
+        && inc().timezone is string
+        && validNotify(inc().notify)
+        && inc().authProvider in ['anonymous', 'google', 'apple', 'password'];
+      allow update: if isOwner(uid)
+        && inc().createdAt == cur().createdAt
+        && inc().timezone is string
+        && validNotify(inc().notify)
+        && inc().updatedAt == request.time;
+      allow delete: if false;
+
+      match /questions/{questionId} {
+        allow read: if isOwner(uid);
+        allow create: if isOwner(uid)
+          && inc().key == questionId
+          && inc().createdAt == request.time
+          && inc().active == true
+          && inc().order in [0, 1, 2];
+        allow update: if isOwner(uid)
+          && changed().hasOnly(['active', 'deactivatedAt', 'order'])
+          && inc().key == cur().key
+          && inc().label == cur().label
+          && inc().yesLabel == cur().yesLabel
+          && inc().noLabel == cur().noLabel;
+        allow delete: if false;
+      }
+
+      match /days/{dateId} {
+        allow read, write: if isOwner(uid);
+      }
+
+      match /entries/{entryId} {
+        allow read: if isOwner(uid);
+        allow create: if isOwner(uid)
+          && inc().keys().hasOnly([
+            'id', 'type', 'date', 'timezone', 'questionKey', 'questionLabel',
+            'answer', 'text', 'strength', 'createdAt', 'lockedAt', 'contentHash',
+            'remainingMinutes', 'outcome', 'outcomeNote', 'resolvedAt', 'deletedAt'
+          ])
+          && inc().id == entryId
+          && inc().createdAt == request.time
+          && inc().lockedAt == request.time
+          && inc().outcome == 'pending'
+          && inc().resolvedAt == null
+          && inc().outcomeNote == null
+          && inc().deletedAt == null
+          && inc().type in ['fixed', 'free']
+          && inc().strength in ['faint', 'medium', 'strong']
+          && inc().date is string
+          && inc().date.size() == 10
+          && inc().timezone is string
+          && inc().contentHash is string
+          && inc().contentHash.matches('sha256:[0-9a-f]{64}')
+          && inc().remainingMinutes is int
+          && inc().remainingMinutes >= 0
+          && inc().remainingMinutes <= 1440
+          && (
+            (
+              inc().type == 'fixed'
+              && inc().answer in ['yes', 'no']
+              && inc().questionKey is string
+              && inc().questionLabel is string
+              && inc().text == null
+            )
+            ||
+            (
+              inc().type == 'free'
+              && inc().text is string
+              && inc().text.size() > 0
+              && inc().text.size() <= 60
+              && inc().answer == null
+              && inc().questionKey == null
+              && inc().questionLabel == null
+            )
+          );
+
+        allow update: if isOwner(uid)
+          && cur().outcome == 'pending'
+          && cur().deletedAt == null
+          && changed().hasOnly(['outcome', 'outcomeNote', 'resolvedAt'])
+          && inc().outcome in ['occurred', 'not_occurred', 'uncertain']
+          && inc().resolvedAt == request.time
+          && validNote(inc().outcomeNote);
+
+        allow update: if isOwner(uid)
+          && cur().outcome != 'pending'
+          && cur().deletedAt == null
+          && changed().hasOnly(['outcomeNote'])
+          && validNote(inc().outcomeNote);
+
+        allow update: if isOwner(uid)
+          && cur().deletedAt == null
+          && cur().outcome == 'pending'
+          && changed().hasOnly(['deletedAt'])
+          && inc().deletedAt == request.time;
+
+        allow delete: if false;
+      }
+
+      match /stats/{docId} {
+        allow read: if isOwner(uid);
+        allow write: if false;
+      }
+
+      match /tokens/{token} {
+        allow read: if isOwner(uid);
+        allow create, update: if isOwner(uid)
+          && inc().token == token
+          && inc().platform in ['web', 'ios-pwa', 'android-pwa'];
+        allow delete: if isOwner(uid);
+      }
+
+      match /audit/{auditId} {
+        allow read: if isOwner(uid);
+        allow create: if isOwner(uid)
+          && inc().createdAt == request.time
+          && inc().action in ['entry_deleted', 'question_replaced', 'data_exported', 'all_deleted'];
+        allow update, delete: if false;
+      }
+    }
+  }
+}
