@@ -4,24 +4,59 @@ import { AppShell } from "@/components/AppShell";
 import { ClientProviders } from "@/components/ClientProviders";
 import "./globals.css";
 
+const siteName = "오늘감";
+const siteTitle = "오늘감 | 오늘 벌어질 일을 먼저 감으로 기록하세요";
+const siteDescription =
+  "오늘 벌어질 일을 결과가 나오기 전에 감으로 기록하고, 나중에 실제 결과와 비교해 내 직감을 확인하세요.";
+const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://today-gam.web.app";
+const shareImage = {
+  url: "/og/oneulgam-share.png",
+  width: 1200,
+  height: 630,
+  alt: "오늘 벌어질 일을 결과 전에 감으로 기록하는 오늘감",
+};
+
 export const metadata: Metadata = {
+  metadataBase: new URL(siteUrl),
   title: {
-    default: "오늘감",
-    template: "%s · 오늘감",
+    default: siteTitle,
+    template: `%s | ${siteName}`,
   },
-  description: "결과가 나오기 전에 기록하고, 우연과 구분되는지 확인하세요.",
-  applicationName: "오늘감",
+  description: siteDescription,
+  applicationName: siteName,
+  keywords: ["오늘감", "직감 기록", "예측 기록", "오늘 질문", "감 기록"],
   manifest: "/manifest.webmanifest",
   icons: {
-    icon: [{ url: "/icon.svg", type: "image/svg+xml" }],
+    icon: [
+      { url: "/icons/favicon-32.png", sizes: "32x32", type: "image/png" },
+      { url: "/icons/icon-192.png", sizes: "192x192", type: "image/png" },
+      { url: "/icons/icon-512.png", sizes: "512x512", type: "image/png" },
+    ],
     apple: [{ url: "/icons/icon-192.png", sizes: "192x192", type: "image/png" }],
+  },
+  openGraph: {
+    type: "website",
+    locale: "ko_KR",
+    url: "/",
+    siteName,
+    title: siteTitle,
+    description: siteDescription,
+    images: [shareImage],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: siteTitle,
+    description: siteDescription,
+    images: [shareImage.url],
   },
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
-    title: "오늘감",
+    title: siteName,
   },
   formatDetection: { telephone: false },
+  robots: { index: true, follow: true },
+  category: "lifestyle",
 };
 
 export const viewport: Viewport = {

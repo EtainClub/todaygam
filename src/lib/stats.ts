@@ -14,6 +14,26 @@ export interface LiftResult {
   message: string;
 }
 
+function finiteCount(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value)
+    ? Math.max(0, value)
+    : 0;
+}
+
+export function normalizeQuestionRollup(
+  data: Partial<QuestionRollup> | null | undefined,
+  fallbackLabel = "",
+): QuestionRollup {
+  return {
+    label: typeof data?.label === "string" ? data.label : fallbackLabel,
+    yesOccurred: finiteCount(data?.yesOccurred),
+    yesNotOccurred: finiteCount(data?.yesNotOccurred),
+    noOccurred: finiteCount(data?.noOccurred),
+    noNotOccurred: finiteCount(data?.noNotOccurred),
+    uncertain: finiteCount(data?.uncertain),
+  };
+}
+
 export function isHit(entry: Entry): boolean | null {
   if (entry.outcome === "uncertain" || entry.outcome === "pending" || entry.deletedAt) return null;
   if (entry.type === "fixed") {
@@ -29,8 +49,9 @@ export function calculateLift(
   data: QuestionRollup,
   gate = { minPerArm: 10, minTotal: 25 },
 ): LiftResult {
-  const nYes = data.yesOccurred + data.yesNotOccurred;
-  const nNo = data.noOccurred + data.noNotOccurred;
+  const normalized = normalizeQuestionRollup(data);
+  const nYes = normalized.yesOccurred + normalized.yesNotOccurred;
+  const nNo = normalized.noOccurred + normalized.noNotOccurred;
   const total = nYes + nNo;
   const missingForArms = Math.max(0, gate.minPerArm - nYes) + Math.max(0, gate.minPerArm - nNo);
   const need = Math.max(gate.minTotal - total, missingForArms, 0);
@@ -49,8 +70,8 @@ export function calculateLift(
     };
   }
 
-  const pYes = data.yesOccurred / nYes;
-  const pNo = data.noOccurred / nNo;
+  const pYes = normalized.yesOccurred / nYes;
+  const pNo = normalized.noOccurred / nNo;
   const lift = pYes - pNo;
   const se = Math.sqrt((pYes * (1 - pYes)) / nYes + (pNo * (1 - pNo)) / nNo);
   const z = se === 0 ? (lift === 0 ? 0 : Number.POSITIVE_INFINITY) : Math.abs(lift) / se;
@@ -114,7 +135,11 @@ export function rollupEntries(entries: Entry[]): Rollup {
 }
 
 export function strengthRate(rollup: Rollup, strength: Strength) {
-  const value = rollup.byStrength[strength];
+  const rawValue = rollup.byStrength[strength];
+  const value = {
+    hit: finiteCount(rawValue?.hit),
+    total: finiteCount(rawValue?.total),
+  };
   return {
     ...value,
     rate: value.total >= 20 ? Math.round((value.hit / value.total) * 100) : null,

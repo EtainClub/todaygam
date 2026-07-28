@@ -1,17 +1,17 @@
 {
   "name": "오늘감",
   "short_name": "오늘감",
-  "description": "결과가 나오기 전에 기록하고, 우연과 구분되는지 확인하세요.",
+  "description": "오늘 벌어질 일을 결과가 나오기 전에 감으로 기록하고, 나중에 실제 결과와 비교해 내 직감을 확인하세요.",
   "start_url": "/?src=pwa",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#f4f1ea",
-  "theme_color": "#f4f1ea",
+  "background_color": "#111712",
+  "theme_color": "#111712",
   "lang": "ko-KR",
   "icons": [
     { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
-    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
     { "src": "/icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ]
 }

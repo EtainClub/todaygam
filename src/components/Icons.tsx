@@ -60,3 +60,12 @@ export const BellIcon = (props: Props) => (
 export const CloudIcon = (props: Props) => (
   <Icon {...props}><path d="M7 18h10a4 4 0 0 0 .5-8A6 6 0 0 0 6 8.5 4.8 4.8 0 0 0 7 18Z" /></Icon>
 );
+export const LogoutIcon = (props: Props) => (
+  <Icon {...props}><path d="M10 5H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h4M14 8l4 4-4 4M9 12h9" /></Icon>
+);
+export const GitHubIcon = (props: Props) => (
+  <Icon {...props}>
+    <path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3.3-.4 6.8-1.6 6.8-7.4A5.8 5.8 0 0 0 19.3 3a5.4 5.4 0 0 0-.1-4S18-1.4 15 1.5a13.4 13.4 0 0 0-7 0C5-1.4 3.8-1 3.8-1a5.4 5.4 0 0 0-.1 4A5.8 5.8 0 0 0 2.2 7.1c0 5.8 3.5 7 6.8 7.4A4.8 4.8 0 0 0 8 18v4" />
+    <path d="M8 19c-3 .9-3-1.5-4.2-2" />
+  </Icon>
+);

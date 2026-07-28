@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { calculateLift, isHit, rollupEntries } from "../../src/lib/stats.ts";
-import type { Entry, QuestionRollup } from "../../src/lib/types.ts";
+import {
+  calculateLift,
+  isHit,
+  normalizeQuestionRollup,
+  rollupEntries,
+  strengthRate,
+} from "../../src/lib/stats.ts";
+import type { Entry, QuestionRollup, Rollup } from "../../src/lib/types.ts";
 
 function rollup(values: Partial<QuestionRollup>): QuestionRollup {
   return {
@@ -90,6 +96,22 @@ describe("calculateLift", () => {
     assert.equal(value.state, "insufficient");
     assert.equal(value.need, 1);
   });
+
+  it("treats missing remote counters as zero instead of NaN", () => {
+    const sparse = {
+      label: "비가 올까?",
+      yesOccurred: 1,
+    } as QuestionRollup;
+    const normalized = normalizeQuestionRollup(sparse);
+    const value = calculateLift(sparse);
+
+    assert.deepEqual(normalized, rollup({ yesOccurred: 1, label: "비가 올까?" }));
+    assert.equal(value.state, "insufficient");
+    assert.equal(value.nYes, 1);
+    assert.equal(value.nNo, 0);
+    assert.equal(value.need, 24);
+    assert.equal(Number.isNaN(value.need), false);
+  });
 });
 
 describe("hit and rollup logic", () => {
@@ -120,5 +142,16 @@ describe("hit and rollup logic", () => {
     });
     assert.equal(result.totals.hit, 2);
     assert.equal(result.totals.miss, 2);
+  });
+
+  it("treats a missing strength hit counter as zero", () => {
+    const result = rollupEntries([]);
+    result.byStrength.medium = { total: 20 } as Rollup["byStrength"]["medium"];
+
+    assert.deepEqual(strengthRate(result, "medium"), {
+      hit: 0,
+      total: 20,
+      rate: 0,
+    });
   });
 });

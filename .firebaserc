@@ -2,6 +2,6 @@
   "projects": {
     "default": "oneulgam-dev",
     "dev": "oneulgam-dev",
-    "prod": "oneulgam-prod"
+    "prod": "today-gam"
   }
 }

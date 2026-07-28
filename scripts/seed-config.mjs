@@ -1,7 +1,10 @@
 import { applicationDefault, getApps, initializeApp } from "firebase-admin/app";
 import { FieldValue, getFirestore } from "firebase-admin/firestore";
 
-const projectId = process.env.GCLOUD_PROJECT || process.env.NEXT_PUBLIC_FB_PROJECT_ID || "oneulgam-dev";
+const projectId =
+  process.env.GCLOUD_PROJECT ||
+  process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID ||
+  "oneulgam-dev";
 if (!getApps().length) initializeApp({ credential: applicationDefault(), projectId });
 
 const questionCatalog = [

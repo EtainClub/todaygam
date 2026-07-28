@@ -2,8 +2,10 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { AccountMenu } from "./AccountMenu";
 import { BrandMark } from "./BrandMark";
-import { StatsIcon, TodayIcon } from "./Icons";
+import { GitHubIcon, StatsIcon, TodayIcon } from "./Icons";
+import { useAppStore } from "@/lib/store";
 
 const items = [
   { href: "/", label: "오늘", icon: TodayIcon },
@@ -12,10 +14,24 @@ const items = [
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const accountLinked = useAppStore((state) => state.accountLinked);
   if (pathname.startsWith("/onboarding")) return <>{children}</>;
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${accountLinked ? "app-shell--account" : ""}`}>
+      <div className="app-shell__actions">
+        <a
+          className="icon-button app-shell__github"
+          href="https://github.com/EtainClub/todaygam"
+          target="_blank"
+          rel="noreferrer"
+          aria-label="오늘감 GitHub 저장소 열기"
+          title="GitHub"
+        >
+          <GitHubIcon size={20} />
+        </a>
+        {accountLinked ? <AccountMenu /> : null}
+      </div>
       <aside className="desktop-rail" aria-label="주요 탐색">
         <Link href="/" className="desktop-rail__brand"><BrandMark /></Link>
         <nav className="desktop-rail__nav">

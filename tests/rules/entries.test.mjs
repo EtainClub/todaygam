@@ -50,6 +50,23 @@ function entryRef(db, uid = "alice", id = "entry-1") {
   return doc(db, `users/${uid}/entries/${id}`);
 }
 
+function questionRef(db, uid = "alice", id = "rain") {
+  return doc(db, `users/${uid}/questions/${id}`);
+}
+
+function validQuestion() {
+  return {
+    key: "rain",
+    label: "비가 올까?",
+    yesLabel: "올 것 같다",
+    noLabel: "아닐 것 같다",
+    order: 0,
+    active: true,
+    createdAt: serverTimestamp(),
+    deactivatedAt: null,
+  };
+}
+
 before(async () => {
   const [host, port] = (process.env.FIRESTORE_EMULATOR_HOST || "127.0.0.1:8080").split(":");
   environment = await initializeTestEnvironment({
@@ -184,5 +201,26 @@ describe("immutable entries", { concurrency: false }, () => {
     const value = validEntry();
     delete value.clientCreatedAt;
     await assertFails(setDoc(entryRef(db), value));
+  });
+});
+
+describe("editable question labels", { concurrency: false }, () => {
+  it("lets an owner edit only the question label", async () => {
+    const db = dbAs("alice");
+    await assertSucceeds(setDoc(questionRef(db), validQuestion()));
+    await assertSucceeds(updateDoc(questionRef(db), { label: "오늘 우산이 필요할까?" }));
+  });
+
+  it("rejects an empty or overlong question label", async () => {
+    const db = dbAs("alice");
+    await assertSucceeds(setDoc(questionRef(db), validQuestion()));
+    await assertFails(updateDoc(questionRef(db), { label: "" }));
+    await assertFails(updateDoc(questionRef(db), { label: "가".repeat(41) }));
+  });
+
+  it("keeps the answer labels immutable", async () => {
+    const db = dbAs("alice");
+    await assertSucceeds(setDoc(questionRef(db), validQuestion()));
+    await assertFails(updateDoc(questionRef(db), { yesLabel: "무조건 온다" }));
   });
 });

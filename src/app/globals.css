@@ -99,6 +99,123 @@ button:disabled {
   min-width: 0;
 }
 
+.app-shell__actions {
+  position: fixed;
+  z-index: 45;
+  display: flex;
+  top: 25px;
+  right: 20px;
+  align-items: center;
+  gap: 8px;
+}
+
+.app-shell__github {
+  color: var(--text-sub);
+}
+
+.account-menu {
+  position: relative;
+}
+
+.account-menu__trigger {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, .68);
+  cursor: pointer;
+}
+
+.account-menu__avatar {
+  position: relative;
+  display: grid;
+  width: 36px;
+  height: 36px;
+  overflow: hidden;
+  place-items: center;
+  border-radius: 11px;
+  background: var(--accent);
+  color: #fff;
+  font-size: .82rem;
+  font-weight: 760;
+}
+
+.account-menu__avatar img {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  inset: 0;
+  object-fit: cover;
+}
+
+.account-menu__dropdown {
+  position: absolute;
+  width: min(250px, calc(100vw - 40px));
+  top: calc(100% + 9px);
+  right: 0;
+  overflow: hidden;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 17px;
+  background: var(--surface);
+  box-shadow: var(--shadow-float);
+}
+
+.account-menu__profile {
+  display: grid;
+  gap: 3px;
+  padding: 10px 11px 12px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.account-menu__profile strong,
+.account-menu__profile span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-menu__profile strong {
+  font-size: .8rem;
+}
+
+.account-menu__profile span {
+  color: var(--text-faint);
+  font-size: .68rem;
+}
+
+.account-menu__logout {
+  display: flex;
+  width: 100%;
+  min-height: 44px;
+  align-items: center;
+  gap: 9px;
+  margin-top: 6px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 11px;
+  background: transparent;
+  color: var(--danger);
+  cursor: pointer;
+  font-size: .76rem;
+  font-weight: 700;
+  text-align: left;
+}
+
+.account-menu__logout:hover {
+  background: var(--danger-soft);
+}
+
+.account-menu__error {
+  margin: 5px 10px 7px;
+  color: var(--danger);
+  font-size: .66rem;
+  line-height: 1.45;
+}
+
 .page {
   width: min(100%, calc(var(--content) + 40px));
   min-height: 100vh;
@@ -560,20 +677,29 @@ button:disabled {
   line-height: 1.5;
 }
 
-.link-account-card > a {
+.link-account-card__connect {
   display: inline-flex;
   min-height: 39px;
   align-items: center;
+  justify-content: center;
   align-self: center;
   padding: 0 11px;
+  border: 0;
   border-radius: 11px;
   background: var(--accent);
   color: #fff;
+  cursor: pointer;
   font-size: .7rem;
   font-weight: 700;
 }
 
-.link-account-card > button {
+.link-account-card__connect:disabled,
+.link-account-card__later:disabled {
+  cursor: wait;
+  opacity: .65;
+}
+
+.link-account-card__later {
   grid-column: 1 / -1;
   justify-self: start;
   min-height: 30px;
@@ -583,6 +709,12 @@ button:disabled {
   color: var(--text-faint);
   cursor: pointer;
   font-size: .66rem;
+}
+
+.link-account-card small {
+  color: var(--danger);
+  font-size: .65rem;
+  line-height: 1.45;
 }
 
 .completion-card {
@@ -1098,7 +1230,12 @@ button:disabled {
 
 /* Stats */
 .stats-mobile-header {
+  padding-right: 52px;
   margin-bottom: 25px;
+}
+
+.app-shell--account .stats-mobile-header {
+  padding-right: 104px;
 }
 
 .stats-heading {
@@ -1116,10 +1253,19 @@ button:disabled {
   padding: 0 13px;
   border: 1px solid var(--line);
   border-radius: 13px;
-  background: rgba(255, 255, 255, .55);
+  background: var(--surface);
   color: var(--text-sub);
   font-size: .78rem;
   font-weight: 650;
+  transition: border-color 150ms ease, background 150ms ease, color 150ms ease;
+}
+
+@media (hover: hover) {
+  .settings-link:hover {
+    border-color: color-mix(in srgb, var(--accent) 42%, var(--line));
+    background: var(--surface-strong);
+    color: var(--text);
+  }
 }
 
 .insight-intro {
@@ -1748,6 +1894,70 @@ button:disabled {
   padding-right: 2px;
 }
 
+.question-editor__item {
+  display: grid;
+  min-height: 54px;
+  grid-template-columns: 48px minmax(0, 1fr);
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, .64);
+  transition: border-color 150ms ease, background 150ms ease;
+}
+
+.question-editor__item.is-selected {
+  border-color: #9db7ad;
+  background: var(--accent-pale);
+}
+
+.question-editor__item:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.question-selector .question-editor__toggle {
+  display: grid;
+  min-height: 52px;
+  grid-template-columns: 1fr;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 15px 0 0 15px;
+  background: transparent;
+}
+
+.question-selector .question-editor__toggle > span {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  border: 1px solid #bfc2bb;
+  border-radius: 7px;
+}
+
+.question-editor__item.is-selected .question-editor__toggle > span {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+
+.question-editor__label {
+  width: 100%;
+  min-width: 0;
+  min-height: 52px;
+  padding: 0 14px 0 2px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: .86rem;
+  font-weight: 620;
+}
+
+.question-editor__item.is-selected .question-editor__label {
+  color: var(--accent);
+}
+
 .sheet-backdrop--center {
   align-items: center;
 }
@@ -1848,6 +2058,11 @@ button:disabled {
     border-right: 1px solid rgba(31, 51, 41, .08);
     background: rgba(248, 246, 240, .72);
     backdrop-filter: blur(22px);
+  }
+
+  .app-shell__actions {
+    top: 28px;
+    right: 32px;
   }
 
   .desktop-rail__brand {
@@ -1954,7 +2169,8 @@ button:disabled {
 
   .question-card::after { opacity: .25; }
   .answer-button,
-  .icon-button { background: rgba(35, 40, 35, .7); }
+  .icon-button,
+  .account-menu__trigger { background: rgba(35, 40, 35, .7); }
   .answer-button.is-selected,
   .outcome-row button,
   .primary-button { background: #315f53; color: #f6faf7; }
@@ -1967,6 +2183,8 @@ button:disabled {
   .insight-intro { background: #24473e; }
   .question-selector button { background: rgba(35, 40, 35, .7); }
   .question-selector button.is-selected { background: var(--accent-pale); }
+  .question-editor__item { background: rgba(35, 40, 35, .7); }
+  .question-editor__item.is-selected { background: var(--accent-pale); }
   .sample-ring::after { background: var(--surface); }
 }
 

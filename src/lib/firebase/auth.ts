@@ -3,7 +3,8 @@
 import {
   GoogleAuthProvider,
   linkWithPopup,
-  onAuthStateChanged,
+  onIdTokenChanged,
+  signOut,
   signInWithCredential,
   signInAnonymously,
   type User,
@@ -82,5 +83,11 @@ export async function connectGoogleAccount(): Promise<{
 export function observeAuth(callback: (user: User | null) => void) {
   const client = getFirebaseClient();
   if (!client) return () => undefined;
-  return onAuthStateChanged(client.auth, callback);
+  return onIdTokenChanged(client.auth, callback);
+}
+
+export async function logoutGoogleAccount() {
+  const client = getFirebaseClient();
+  if (!client) throw new Error("Firebase가 설정되지 않았습니다.");
+  await signOut(client.auth);
 }

@@ -2,17 +2,29 @@
 
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { resolvedEntryCount } from "./account-prompt";
 import { DEFAULT_QUESTION_KEYS, QUESTION_CATALOG } from "./catalog";
 import { minutesUntilMidnight, todayId } from "./day";
 import { createEntryRemote, resolveEntryRemote, softDeleteEntryRemote, updateOutcomeNoteRemote } from "./firebase/entries";
 import { computeHash } from "./hash";
-import type { Answer, DaySummary, Entry, NotifySettings, Outcome, Question, Rollup, Strength } from "./types";
+import type {
+  AccountProfile,
+  Answer,
+  DaySummary,
+  Entry,
+  NotifySettings,
+  Outcome,
+  Question,
+  Rollup,
+  Strength,
+} from "./types";
 
 interface AppState {
   hydrated: boolean;
   onboarded: boolean;
   timezone: string;
   questionCatalog: Question[];
+  questionLabels: Record<string, string>;
   selectedQuestionKeys: string[];
   notify: NotifySettings;
   entries: Entry[];
@@ -20,12 +32,19 @@ interface AppState {
   dismissedYesterdayDates: string[];
   firebaseUid: string | null;
   accountLinked: boolean;
-  linkPromptDismissed: boolean;
+  accountProfile: AccountProfile | null;
+  linkPromptDismissedAt: string | null;
+  linkPromptDismissedResolvedCount: number;
   remoteRollup: Rollup | null;
   remoteDays: DaySummary[];
   setHydrated: (hydrated: boolean) => void;
-  setAuthState: (uid: string | null, accountLinked: boolean) => void;
-  dismissLinkPrompt: () => void;
+  setAuthState: (
+    uid: string | null,
+    accountLinked: boolean,
+    accountProfile?: AccountProfile | null,
+  ) => void;
+  resetAfterLogout: () => void;
+  snoozeLinkPrompt: () => void;
   setQuestionCatalog: (catalog: Question[]) => void;
   setRemoteRollup: (rollup: Rollup | null) => void;
   setRemoteDays: (days: DaySummary[]) => void;
@@ -35,6 +54,7 @@ interface AppState {
     timezone: string | null;
     notify: NotifySettings | null;
     selectedQuestionKeys: string[];
+    questionLabels: Record<string, string>;
   }) => void;
   completeOnboarding: (keys: string[], notify: NotifySettings) => void;
   addFixedEntry: (questionKey: string, answer: Answer, strength: Strength) => Promise<Entry>;
@@ -45,10 +65,24 @@ interface AppState {
   openReview: (date: string) => void;
   dismissYesterday: (date: string) => void;
   updateNotify: (patch: Partial<NotifySettings>) => void;
-  replaceQuestions: (keys: string[]) => void;
+  saveQuestions: (keys: string[], labels: Record<string, string>) => void;
   setTimezone: (timezone: string) => void;
   deleteAllData: () => void;
 }
+
+type PersistedAppState = Pick<
+  AppState,
+  | "onboarded"
+  | "timezone"
+  | "questionLabels"
+  | "selectedQuestionKeys"
+  | "notify"
+  | "linkPromptDismissedAt"
+  | "linkPromptDismissedResolvedCount"
+  | "entries"
+  | "reviewDates"
+  | "dismissedYesterdayDates"
+>;
 
 const DEFAULT_NOTIFY: NotifySettings = {
   morningEnabled: false,
@@ -105,6 +139,7 @@ export const useAppStore = create<AppState>()(
       onboarded: false,
       timezone: "Asia/Seoul",
       questionCatalog: QUESTION_CATALOG,
+      questionLabels: {},
       selectedQuestionKeys: DEFAULT_QUESTION_KEYS,
       notify: DEFAULT_NOTIFY,
       entries: [],
@@ -112,13 +147,44 @@ export const useAppStore = create<AppState>()(
       dismissedYesterdayDates: [],
       firebaseUid: null,
       accountLinked: false,
-      linkPromptDismissed: false,
+      accountProfile: null,
+      linkPromptDismissedAt: null,
+      linkPromptDismissedResolvedCount: 0,
       remoteRollup: null,
       remoteDays: [],
       setHydrated: (hydrated) => set({ hydrated }),
-      setAuthState: (firebaseUid, accountLinked) => set({ firebaseUid, accountLinked }),
-      dismissLinkPrompt: () => set({ linkPromptDismissed: true }),
-      setQuestionCatalog: (questionCatalog) => set({ questionCatalog }),
+      setAuthState: (firebaseUid, accountLinked, accountProfile = null) =>
+        set({ firebaseUid, accountLinked, accountProfile }),
+      resetAfterLogout: () =>
+        set({
+          onboarded: false,
+          questionCatalog: QUESTION_CATALOG,
+          questionLabels: {},
+          selectedQuestionKeys: DEFAULT_QUESTION_KEYS,
+          notify: DEFAULT_NOTIFY,
+          entries: [],
+          reviewDates: [],
+          dismissedYesterdayDates: [],
+          firebaseUid: null,
+          accountLinked: false,
+          accountProfile: null,
+          linkPromptDismissedAt: null,
+          linkPromptDismissedResolvedCount: 0,
+          remoteRollup: null,
+          remoteDays: [],
+        }),
+      snoozeLinkPrompt: () =>
+        set((state) => ({
+          linkPromptDismissedAt: new Date().toISOString(),
+          linkPromptDismissedResolvedCount: resolvedEntryCount(state.entries),
+        })),
+      setQuestionCatalog: (questionCatalog) =>
+        set((state) => ({
+          questionCatalog: questionCatalog.map((question) => ({
+            ...question,
+            label: state.questionLabels[question.key] ?? question.label,
+          })),
+        })),
       setRemoteRollup: (remoteRollup) => set({ remoteRollup }),
       setRemoteDays: (remoteDays) => set({ remoteDays }),
       mergeRemoteEntries: (remoteEntries) =>
@@ -128,15 +194,26 @@ export const useAppStore = create<AppState>()(
           return { entries: Array.from(merged.values()) };
         }),
       applyRemotePreferences: (values) =>
-        set((state) => ({
-          onboarded: values.onboarded || state.onboarded,
-          timezone: values.timezone || state.timezone,
-          notify: values.notify ? { ...state.notify, ...values.notify } : state.notify,
-          selectedQuestionKeys:
-            values.selectedQuestionKeys.length === 3
-              ? values.selectedQuestionKeys
-              : state.selectedQuestionKeys,
-        })),
+        set((state) => {
+          const questionLabels = {
+            ...state.questionLabels,
+            ...values.questionLabels,
+          };
+          return {
+            onboarded: values.onboarded || state.onboarded,
+            timezone: values.timezone || state.timezone,
+            notify: values.notify ? { ...state.notify, ...values.notify } : state.notify,
+            selectedQuestionKeys:
+              values.selectedQuestionKeys.length === 3
+                ? values.selectedQuestionKeys
+                : state.selectedQuestionKeys,
+            questionLabels,
+            questionCatalog: state.questionCatalog.map((question) => ({
+              ...question,
+              label: questionLabels[question.key] ?? question.label,
+            })),
+          };
+        }),
       completeOnboarding: (selectedQuestionKeys, notify) =>
         set({ onboarded: true, selectedQuestionKeys, notify }),
       addFixedEntry: async (questionKey, answer, strength) => {
@@ -214,8 +291,23 @@ export const useAppStore = create<AppState>()(
             : [...state.dismissedYesterdayDates, date],
         })),
       updateNotify: (patch) => set((state) => ({ notify: { ...state.notify, ...patch } })),
-      replaceQuestions: (keys) => {
-        if (keys.length === 3) set({ selectedQuestionKeys: keys });
+      saveQuestions: (keys, labels) => {
+        if (keys.length !== 3) return;
+        const normalizedLabels = Object.fromEntries(
+          Object.entries(labels)
+            .map(([key, label]) => [key, label.trim().slice(0, 40)])
+            .filter(([key, label]) =>
+              Boolean(label) && QUESTION_CATALOG.some((question) => question.key === key),
+            ),
+        );
+        set((state) => ({
+          selectedQuestionKeys: keys,
+          questionLabels: { ...state.questionLabels, ...normalizedLabels },
+          questionCatalog: state.questionCatalog.map((question) => ({
+            ...question,
+            label: normalizedLabels[question.key] ?? question.label,
+          })),
+        }));
       },
       setTimezone: (timezone) => set({ timezone }),
       deleteAllData: () =>
@@ -223,30 +315,66 @@ export const useAppStore = create<AppState>()(
           entries: [],
           reviewDates: [],
           dismissedYesterdayDates: [],
-          linkPromptDismissed: false,
+          linkPromptDismissedAt: null,
+          linkPromptDismissedResolvedCount: 0,
           onboarded: false,
+          questionCatalog: QUESTION_CATALOG,
+          questionLabels: {},
           selectedQuestionKeys: DEFAULT_QUESTION_KEYS,
           notify: DEFAULT_NOTIFY,
         }),
     }),
     {
       name: "oneulgam-v1",
-      version: 1,
+      version: 3,
       partialize: (state) => ({
         onboarded: state.onboarded,
         timezone: state.timezone,
+        questionLabels: state.questionLabels,
         selectedQuestionKeys: state.selectedQuestionKeys,
         notify: state.notify,
-        linkPromptDismissed: state.linkPromptDismissed,
+        linkPromptDismissedAt: state.linkPromptDismissedAt,
+        linkPromptDismissedResolvedCount: state.linkPromptDismissedResolvedCount,
         entries: state.entries,
         reviewDates: state.reviewDates,
         dismissedYesterdayDates: state.dismissedYesterdayDates,
       }),
+      migrate: (persistedState, version) => {
+        const persisted = persistedState as Partial<PersistedAppState> & {
+          linkPromptDismissed?: boolean;
+        };
+        const entries = persisted.entries ?? [];
+        const migrated: PersistedAppState = {
+          onboarded: persisted.onboarded ?? false,
+          timezone: persisted.timezone ?? "Asia/Seoul",
+          questionLabels: persisted.questionLabels ?? {},
+          selectedQuestionKeys: persisted.selectedQuestionKeys ?? DEFAULT_QUESTION_KEYS,
+          notify: persisted.notify ?? DEFAULT_NOTIFY,
+          linkPromptDismissedAt:
+            version >= 2
+              ? persisted.linkPromptDismissedAt ?? null
+              : persisted.linkPromptDismissed
+                ? new Date().toISOString()
+                : null,
+          linkPromptDismissedResolvedCount:
+            version >= 2
+              ? persisted.linkPromptDismissedResolvedCount ?? 0
+              : resolvedEntryCount(entries),
+          entries,
+          reviewDates: persisted.reviewDates ?? [],
+          dismissedYesterdayDates: persisted.dismissedYesterdayDates ?? [],
+        };
+        return migrated;
+      },
       merge: (persistedState, currentState) => {
         const persisted = persistedState as Partial<AppState>;
         return {
           ...currentState,
           ...persisted,
+          questionCatalog: currentState.questionCatalog.map((question) => ({
+            ...question,
+            label: persisted.questionLabels?.[question.key] ?? question.label,
+          })),
           entries: (persisted.entries ?? []).map((entry) => ({
             ...entry,
             clientCreatedAt: entry.clientCreatedAt ?? entry.createdAt,

@@ -33,6 +33,9 @@ importers:
       '@firebase/rules-unit-testing':
         specifier: ^5.0.1
         version: 5.0.1(firebase@12.16.0)
+      '@next/env':
+        specifier: 16.2.11
+        version: 16.2.11
       '@types/node':
         specifier: ^20
         version: 20.19.43

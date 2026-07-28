@@ -9,7 +9,12 @@ import { CloseIcon, SettingsIcon } from "@/components/Icons";
 import { LiftBar } from "@/components/LiftBar";
 import { MonthCalendar } from "@/components/MonthCalendar";
 import { STRENGTH_LABEL } from "@/lib/catalog";
-import { calculateLift, rollupEntries, strengthRate } from "@/lib/stats";
+import {
+  calculateLift,
+  normalizeQuestionRollup,
+  rollupEntries,
+  strengthRate,
+} from "@/lib/stats";
 import { useAppStore } from "@/lib/store";
 import type { Strength } from "@/lib/types";
 
@@ -57,14 +62,7 @@ export function StatsContent() {
         {selectedKeys.map((key) => {
           const catalog = questionCatalog.find((item) => item.key === key);
           if (!catalog) return null;
-          const data = rollup.byQuestion[key] ?? {
-            label: catalog.label,
-            yesOccurred: 0,
-            yesNotOccurred: 0,
-            noOccurred: 0,
-            noNotOccurred: 0,
-            uncertain: 0,
-          };
+          const data = normalizeQuestionRollup(rollup.byQuestion[key], catalog.label);
           const signal = calculateLift(data);
           const total = signal.nYes + signal.nNo + data.uncertain;
           return (

@@ -4,14 +4,15 @@ import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
+import { AccountLinkPrompt } from "@/components/AccountLinkPrompt";
 import { BrandMark } from "@/components/BrandMark";
 import { FreeEntrySheet } from "@/components/FreeEntrySheet";
 import { CheckIcon, PlusIcon } from "@/components/Icons";
 import { QuestionCard } from "@/components/QuestionCard";
 import { YesterdayBanner } from "@/components/YesterdayBanner";
+import { shouldShowAccountPrompt } from "@/lib/account-prompt";
 import { formatKoreanDate, todayId, yesterdayId } from "@/lib/day";
 import { isHit } from "@/lib/stats";
-import { markLinkPromptShownRemote } from "@/lib/firebase/sync";
 import { useAppStore } from "@/lib/store";
 
 export default function TodayPage() {
@@ -29,8 +30,9 @@ export default function TodayPage() {
     openReview,
     firebaseUid,
     accountLinked,
-    linkPromptDismissed,
-    dismissLinkPrompt,
+    linkPromptDismissedAt,
+    linkPromptDismissedResolvedCount,
+    snoozeLinkPrompt,
   } = useAppStore();
   const [now, setNow] = useState(() => new Date());
   const [freeSheetOpen, setFreeSheetOpen] = useState(false);
@@ -79,6 +81,14 @@ export default function TodayPage() {
   const activePending = activeEntries.filter((entry) => entry.outcome === "pending");
   const activeComplete = activeEntries.length > 0 && activePending.length === 0;
   const todayComplete = todayEntries.length > 0 && todayEntries.every((entry) => entry.outcome !== "pending");
+  const showAccountPrompt = activeComplete && shouldShowAccountPrompt({
+    entries,
+    firebaseUid,
+    accountLinked,
+    dismissedAt: linkPromptDismissedAt,
+    dismissedResolvedCount: linkPromptDismissedResolvedCount,
+    now,
+  });
   const selectedQuestions = selectedQuestionKeys
     .map((key) => questionCatalog.find((question) => question.key === key))
     .filter((question): question is NonNullable<typeof question> => Boolean(question));
@@ -182,12 +192,12 @@ export default function TodayPage() {
           <small>{freeToday.length}/3</small>
         </button>
       )}
-      {firebaseUid && !accountLinked && visibleEntries.length >= 15 && !linkPromptDismissed && (
-        <aside className="link-account-card">
-          <div><strong>기록을 다른 기기에서도 이어가세요.</strong><span>익명 기록을 Google 계정에 안전하게 연결할 수 있어요.</span></div>
-          <Link href="/settings/" onClick={() => { dismissLinkPrompt(); void markLinkPromptShownRemote(firebaseUid); }}>계정 연결</Link>
-          <button type="button" aria-label="계정 연결 안내 닫기" onClick={() => { dismissLinkPrompt(); void markLinkPromptShownRemote(firebaseUid); }}>나중에</button>
-        </aside>
+      {showAccountPrompt && firebaseUid && (
+        <AccountLinkPrompt
+          uid={firebaseUid}
+          entries={entries}
+          onSnooze={snoozeLinkPrompt}
+        />
       )}
       <FreeEntrySheet open={freeSheetOpen} onClose={() => setFreeSheetOpen(false)} />
     </main>

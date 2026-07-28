@@ -19,7 +19,11 @@ import {
   type Timestamp,
 } from "firebase/firestore";
 import type { DaySummary, Entry, NotifySettings, Question, Rollup } from "../types";
-import { getFirebaseClient } from "./client";
+import {
+  firebaseFunctionsRegion,
+  firebaseVapidKey,
+  getFirebaseClient,
+} from "./client";
 import { createEntryRemote, resolveEntryRemote } from "./entries";
 
 function toIso(value: Timestamp | string | null | undefined, fallback: string | null = null) {
@@ -55,7 +59,10 @@ export function observeEntries(uid: string, timezone: string, callback: (entries
     nowParts.find((part) => part.type === type)?.value ?? "";
   const firstOfMonth = `${value("year")}-${value("month")}-01`;
   const groups = new Map<string, Entry[]>();
-  const emit = () => callback(Array.from(groups.values()).flat());
+  const emit = () => {
+    if (!groups.has("month") || !groups.has("unresolved")) return;
+    callback(Array.from(groups.values()).flat());
+  };
   const stopMonth = onSnapshot(
     query(collection(client.db, `users/${uid}/entries`), where("date", ">=", firstOfMonth)),
     (snapshot) => {
@@ -154,6 +161,7 @@ export async function loadRemotePreferences(uid: string): Promise<{
   timezone: string | null;
   notify: NotifySettings | null;
   selectedQuestionKeys: string[];
+  questionLabels: Record<string, string>;
 } | null> {
   const client = getFirebaseClient();
   if (!client) return null;
@@ -169,11 +177,20 @@ export async function loadRemotePreferences(uid: string): Promise<{
     .sort((a, b) => Number(a.data().order ?? 0) - Number(b.data().order ?? 0))
     .map((item) => item.id)
     .slice(0, 3);
+  const questionLabels = Object.fromEntries(
+    questions.docs.flatMap((item) => {
+      const label = item.data().label;
+      return typeof label === "string" && label.trim()
+        ? [[item.id, label.trim().slice(0, 40)]]
+        : [];
+    }),
+  );
   return {
     onboarded,
     timezone: onboarded && typeof data.timezone === "string" ? data.timezone : null,
     notify: onboarded ? data.notify as NotifySettings | null : null,
     selectedQuestionKeys: onboarded ? selectedQuestionKeys : [],
+    questionLabels: onboarded ? questionLabels : {},
   };
 }
 
@@ -183,11 +200,20 @@ export async function syncPreferencesRemote(values: {
   onboarded: boolean;
   notify: NotifySettings;
   selectedQuestionKeys: string[];
+  questionLabels: Record<string, string>;
   catalog: Question[];
 }) {
   const client = getFirebaseClient();
   if (!client) return;
-  const { uid, timezone, onboarded, notify, selectedQuestionKeys, catalog } = values;
+  const {
+    uid,
+    timezone,
+    onboarded,
+    notify,
+    selectedQuestionKeys,
+    questionLabels,
+    catalog,
+  } = values;
   const batch = writeBatch(client.db);
   batch.set(
     doc(client.db, `users/${uid}`),
@@ -219,7 +245,7 @@ export async function syncPreferencesRemote(values: {
       doc(client.db, `users/${uid}/questions/${key}`),
       {
         key,
-        label: previous?.label ?? question.label,
+        label: questionLabels[key] ?? previous?.label ?? question.label,
         yesLabel: previous?.yesLabel ?? question.yesLabel,
         noLabel: previous?.noLabel ?? question.noLabel,
         order,
@@ -330,10 +356,15 @@ export async function markLinkPromptShownRemote(uid: string) {
 
 export async function registerMessagingToken(uid: string) {
   const client = getFirebaseClient();
-  if (!client || !(await isSupported()) || Notification.permission !== "granted") return;
+  if (
+    !client ||
+    !firebaseVapidKey ||
+    !(await isSupported()) ||
+    Notification.permission !== "granted"
+  ) return;
   const registration = await navigator.serviceWorker.ready;
   const token = await getToken(getMessaging(client.app), {
-    vapidKey: process.env.NEXT_PUBLIC_FB_VAPID_KEY,
+    vapidKey: firebaseVapidKey,
     serviceWorkerRegistration: registration,
   });
   if (!token) return;
@@ -355,7 +386,10 @@ export async function registerMessagingToken(uid: string) {
 export async function deleteUserDataRemote() {
   const client = getFirebaseClient();
   if (!client) return;
-  const callable = httpsCallable(getFunctions(client.app, "asia-northeast3"), "deleteUserData");
+  const callable = httpsCallable(
+    getFunctions(client.app, firebaseFunctionsRegion),
+    "deleteUserData",
+  );
   await callable();
 }
 

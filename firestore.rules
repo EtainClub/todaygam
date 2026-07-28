@@ -10,6 +10,9 @@ service cloud.firestore {
     function validNote(value) {
       return value == null || (value is string && value.size() <= 140);
     }
+    function validQuestionLabel(value) {
+      return value is string && value.size() > 0 && value.size() <= 40;
+    }
     function validNotify(value) {
       return value.morningEnabled is bool
         && value.eveningEnabled is bool
@@ -47,11 +50,14 @@ service cloud.firestore {
           && inc().key == questionId
           && inc().createdAt == request.time
           && inc().active == true
-          && inc().order in [0, 1, 2];
+          && inc().order in [0, 1, 2]
+          && validQuestionLabel(inc().label)
+          && validQuestionLabel(inc().yesLabel)
+          && validQuestionLabel(inc().noLabel);
         allow update: if isOwner(uid)
-          && changed().hasOnly(['active', 'deactivatedAt', 'order'])
+          && changed().hasOnly(['active', 'deactivatedAt', 'order', 'label'])
           && inc().key == cur().key
-          && inc().label == cur().label
+          && validQuestionLabel(inc().label)
           && inc().yesLabel == cur().yesLabel
           && inc().noLabel == cur().noLabel;
         allow delete: if false;

@@ -20,7 +20,7 @@ export default function SettingsPage() {
     notify,
     updateNotify,
     selectedQuestionKeys,
-    replaceQuestions,
+    saveQuestions,
     entries,
     timezone,
     questionCatalog,
@@ -31,10 +31,41 @@ export default function SettingsPage() {
   } = useAppStore();
   const [questionEditor, setQuestionEditor] = useState(false);
   const [draftQuestions, setDraftQuestions] = useState(selectedQuestionKeys);
+  const [draftQuestionLabels, setDraftQuestionLabels] = useState<Record<string, string>>({});
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [accountMessage, setAccountMessage] = useState("");
+  const [linkingAccount, setLinkingAccount] = useState(false);
   const [exportMessage, setExportMessage] = useState("");
   const [exporting, setExporting] = useState(false);
+  const canSaveQuestions =
+    draftQuestions.length === 3 &&
+    draftQuestions.every((key) => {
+      const question = questionCatalog.find((item) => item.key === key);
+      return Boolean((draftQuestionLabels[key] ?? question?.label ?? "").trim());
+    });
+
+  function openQuestionEditor() {
+    setDraftQuestions(selectedQuestionKeys);
+    setDraftQuestionLabels({});
+    setQuestionEditor(true);
+  }
+
+  function closeQuestionEditor() {
+    setQuestionEditor(false);
+    setDraftQuestionLabels({});
+  }
+
+  function toggleDraftQuestion(key: string) {
+    setDraftQuestions((current) => {
+      if (current.includes(key)) return current.filter((item) => item !== key);
+      return current.length < 3 ? [...current, key] : current;
+    });
+  }
+
+  function saveQuestionChanges() {
+    saveQuestions(draftQuestions, draftQuestionLabels);
+    closeQuestionEditor();
+  }
 
   async function toggleNotification(key: "morningEnabled" | "eveningEnabled" | "unresolvedEnabled") {
     if (!notify[key] && key !== "unresolvedEnabled" && "Notification" in window) {
@@ -87,10 +118,13 @@ export default function SettingsPage() {
   }
 
   async function linkAccount() {
+    if (linkingAccount) return;
     if (!isFirebaseConfigured()) {
       setAccountMessage("Firebase 환경 키를 연결하면 Google 계정으로 전환할 수 있어요.");
       return;
     }
+    setLinkingAccount(true);
+    setAccountMessage("");
     try {
       const result = await connectGoogleAccount();
       const migrated = await migrateLocalEntriesRemote(result.user.uid, entries);
@@ -105,6 +139,8 @@ export default function SettingsPage() {
       );
     } catch (error) {
       setAccountMessage(error instanceof Error ? error.message : "계정 연결에 실패했어요.");
+    } finally {
+      setLinkingAccount(false);
     }
   }
 
@@ -132,7 +168,7 @@ export default function SettingsPage() {
 
       <section className="settings-group">
         <h2>질문</h2>
-        <button type="button" className="settings-link-card" onClick={() => setQuestionEditor(true)}>
+        <button type="button" className="settings-link-card" onClick={openQuestionEditor}>
           <span><strong>나의 질문 3개 관리</strong><small>{selectedQuestionKeys.map((key) => questionCatalog.find((item) => item.key === key)?.label.replace(/\?$/, "")).join(" · ")}</small></span>
           <ChevronRightIcon />
         </button>
@@ -143,8 +179,19 @@ export default function SettingsPage() {
         <div className="settings-card">
           <div className="account-row">
             <span className="settings-row__icon"><CloudIcon size={19} /></span>
-            <span><strong>{accountLinked ? "Google 계정으로 동기화 중" : firebaseUid ? "익명으로 동기화 중" : "이 기기에 저장 중"}</strong><small>{firebaseUid ? "Firebase 보안 규칙으로 보호됩니다." : "Firebase 키가 없어 로컬 모드로 동작합니다."}</small></span>
-            <button type="button" onClick={() => void linkAccount()}>{accountLinked ? "동기화 확인" : "계정 연결"}</button>
+            <span>
+              <strong>{accountLinked ? "Google 계정에 연결됨" : firebaseUid ? "익명으로 사용 중" : "이 기기에 저장 중"}</strong>
+              <small>
+                {accountLinked
+                  ? "다른 기기에서도 같은 Google 계정으로 기록을 이어볼 수 있어요."
+                  : firebaseUid
+                    ? "브라우저 데이터를 지우면 기록을 다시 찾기 어려워요."
+                    : "Firebase 키가 없어 로컬 모드로 동작합니다."}
+              </small>
+            </span>
+            <button type="button" disabled={linkingAccount} onClick={() => void linkAccount()}>
+              {linkingAccount ? "연결 중…" : accountLinked ? "동기화 확인" : "계정 연결"}
+            </button>
           </div>
           {accountMessage && <p className="settings-message">{accountMessage}</p>}
         </div>
@@ -155,7 +202,7 @@ export default function SettingsPage() {
         <div className="settings-card">
           <button type="button" className="data-row" disabled={exporting} onClick={() => void exportData()}><DownloadIcon size={19} /><span><strong>{exporting ? "전체 기록 가져오는 중" : "내 기록 내보내기"}</strong><small>JSON 파일 · 서버의 전체 기록 포함</small></span><ChevronRightIcon size={18} /></button>
           {exportMessage && <p className="settings-message">{exportMessage}</p>}
-          <button type="button" className="data-row data-row--danger" onClick={() => setDeleteConfirm(true)}><TrashIcon size={19} /><span><strong>모든 기록 삭제</strong><small>이 기기의 오늘감 데이터를 지웁니다.</small></span><ChevronRightIcon size={18} /></button>
+          <button type="button" className="data-row data-row--danger" onClick={() => setDeleteConfirm(true)}><TrashIcon size={19} /><span><strong>모든 기록 삭제</strong><small>{firebaseUid ? "이 기기와 Firebase의 오늘감 데이터를 지웁니다." : "이 기기의 오늘감 데이터를 지웁니다."}</small></span><ChevronRightIcon size={18} /></button>
         </div>
       </section>
 
@@ -169,22 +216,53 @@ export default function SettingsPage() {
         {questionEditor && (
           <motion.div className="sheet-backdrop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
             <motion.section className="bottom-sheet question-editor" role="dialog" aria-modal="true" initial={reduceMotion ? { opacity: 0 } : { opacity: 0, y: "100%" }} animate={{ opacity: 1, y: 0 }} exit={reduceMotion ? { opacity: 0 } : { opacity: 0, y: "100%" }} transition={{ type: "spring", bounce: 0.08, duration: 0.38 }}>
-              <div className="sheet-handle" /><header className="sheet-header"><div><span className="section-kicker">QUESTIONS</span><h2>나의 질문 3개</h2></div><button type="button" className="text-button" onClick={() => setQuestionEditor(false)}>취소</button></header>
-              <p className="sheet-copy">교체해도 이전 질문의 통계는 그대로 보존됩니다.</p>
+              <div className="sheet-handle" /><header className="sheet-header"><div><span className="section-kicker">QUESTIONS</span><h2>나의 질문 3개</h2></div><button type="button" className="text-button" onClick={closeQuestionEditor}>취소</button></header>
+              <p className="sheet-copy">3개를 고르고 문구를 직접 수정하세요. 이전 기록과 통계는 그대로 보존됩니다.</p>
               <div className="question-selector">
                 {questionCatalog.map((question) => {
                   const checked = draftQuestions.includes(question.key);
-                  return <button type="button" key={question.key} className={checked ? "is-selected" : ""} onClick={() => setDraftQuestions((current) => checked ? current.filter((key) => key !== question.key) : current.length < 3 ? [...current, question.key] : current)}><span>{checked && <CheckIcon size={15} />}</span>{question.label}</button>;
+                  const label = draftQuestionLabels[question.key] ?? question.label;
+                  return (
+                    <div key={question.key} className={`question-editor__item ${checked ? "is-selected" : ""}`}>
+                      <button
+                        type="button"
+                        className="question-editor__toggle"
+                        aria-label={`${label} ${checked ? "선택 해제" : "선택"}`}
+                        aria-pressed={checked}
+                        disabled={!checked && draftQuestions.length === 3}
+                        onClick={() => toggleDraftQuestion(question.key)}
+                      >
+                        <span>{checked ? <CheckIcon size={15} /> : null}</span>
+                      </button>
+                      <input
+                        className="question-editor__label"
+                        value={label}
+                        maxLength={40}
+                        aria-label={`${question.label} 문구 수정`}
+                        onChange={(event) => setDraftQuestionLabels((current) => ({
+                          ...current,
+                          [question.key]: event.target.value,
+                        }))}
+                      />
+                    </div>
+                  );
                 })}
               </div>
-              <button type="button" className="primary-button" disabled={draftQuestions.length !== 3} onClick={() => { replaceQuestions(draftQuestions); setQuestionEditor(false); }}>3개 질문 저장</button>
+              <button
+                type="button"
+                className="primary-button"
+                disabled={!canSaveQuestions}
+                onClick={saveQuestionChanges}
+              >
+                3개 질문 저장
+              </button>
             </motion.section>
           </motion.div>
         )}
         {deleteConfirm && (
           <motion.div className="sheet-backdrop sheet-backdrop--center" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
             <motion.section className="confirm-dialog" role="alertdialog" aria-modal="true" initial={reduceMotion ? { opacity: 0 } : { opacity: 0, scale: 0.94 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.96 }}>
-              <span className="danger-icon"><TrashIcon /></span><h2>모든 기록을 삭제할까요?</h2><p>이 기기에 저장된 질문, 감, 통계가 모두 사라집니다. 먼저 JSON으로 내보낼 수 있어요.</p>
+              <span className="danger-icon"><TrashIcon /></span><h2>모든 기록을 삭제할까요?</h2><p>{firebaseUid ? "이 기기와 Firebase에 저장된" : "이 기기에 저장된"} 질문, 감, 통계가 모두 사라집니다. 먼저 JSON으로 내보낼 수 있어요.</p>
               <div><button type="button" className="secondary-button" onClick={() => setDeleteConfirm(false)}>취소</button><button type="button" className="danger-button" onClick={() => { void (async () => { if (firebaseUid) await deleteUserDataRemote(); deleteAllData(); setDeleteConfirm(false); window.location.href = "/onboarding/"; })(); }}>모두 삭제</button></div>
             </motion.section>
           </motion.div>
