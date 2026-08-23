@@ -10,6 +10,7 @@ import {
 import type { Entry } from "../types";
 import { isHit } from "../stats";
 import { getFirebaseClient } from "./client";
+import { notifyFirestoreWrite } from "./toss-live";
 
 export async function createEntryRemote(uid: string, entry: Entry) {
   const client = getFirebaseClient();
@@ -39,6 +40,7 @@ export async function createEntryRemote(uid: string, entry: Entry) {
     { merge: true },
   );
   await batch.commit();
+  notifyFirestoreWrite();
 }
 
 export async function resolveEntryRemote(
@@ -71,6 +73,7 @@ export async function resolveEntryRemote(
     { merge: true },
   );
   await batch.commit();
+  notifyFirestoreWrite();
 }
 
 export async function updateOutcomeNoteRemote(uid: string, entryId: string, note: string | null) {
@@ -79,6 +82,7 @@ export async function updateOutcomeNoteRemote(uid: string, entryId: string, note
   const batch = writeBatch(client.db);
   batch.update(doc(client.db, `users/${uid}/entries/${entryId}`), { outcomeNote: note });
   await batch.commit();
+  notifyFirestoreWrite();
 }
 
 export async function softDeleteEntryRemote(uid: string, entry: Entry) {
@@ -94,4 +98,5 @@ export async function softDeleteEntryRemote(uid: string, entry: Entry) {
     createdAt: serverTimestamp(),
   });
   await batch.commit();
+  notifyFirestoreWrite();
 }

@@ -1,6 +1,6 @@
 {
   "name": "oneulgam",
-  "version": "1.0.0",
+  "version": "0.1.2",
   "private": true,
   "type": "module",
   "engines": {
@@ -17,9 +17,15 @@
     "seed:emulator": "node scripts/seed-emulator.mjs",
     "verify": "pnpm lint && pnpm test && pnpm --dir functions build && pnpm --dir functions test && pnpm build",
     "deploy:dev": "pnpm build && firebase deploy -P dev",
-    "deploy:prod": "pnpm build && firebase deploy -P prod --only hosting,functions,firestore"
+    "deploy:prod": "pnpm build && firebase deploy -P prod --only hosting,functions,firestore",
+    "dev:ait": "granite dev",
+    "dev:toss": "TOSS_BUILD=1 NEXT_PUBLIC_TOSS_APP=1 next dev --webpack",
+    "prebuild:toss": "node scripts/gen-sw-config.mjs",
+    "build:toss": "TOSS_BUILD=1 NEXT_PUBLIC_TOSS_APP=1 next build --webpack",
+    "build:ait": "ait build"
   },
   "dependencies": {
+    "@apps-in-toss/web-framework": "^2.10.8",
     "firebase": "^12.16.0",
     "motion": "^12.42.2",
     "next": "16.2.11",

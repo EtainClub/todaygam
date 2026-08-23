@@ -2,21 +2,17 @@
 
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { AccountLinkPrompt } from "@/components/AccountLinkPrompt";
 import { BrandMark } from "@/components/BrandMark";
 import { FreeEntrySheet } from "@/components/FreeEntrySheet";
 import { CheckIcon, PlusIcon } from "@/components/Icons";
 import { QuestionCard } from "@/components/QuestionCard";
 import { YesterdayBanner } from "@/components/YesterdayBanner";
-import { shouldShowAccountPrompt } from "@/lib/account-prompt";
 import { formatKoreanDate, todayId, yesterdayId } from "@/lib/day";
 import { isHit } from "@/lib/stats";
 import { useAppStore } from "@/lib/store";
 
 export default function TodayPage() {
-  const router = useRouter();
   const reduceMotion = useReducedMotion();
   const {
     hydrated,
@@ -28,11 +24,6 @@ export default function TodayPage() {
     reviewDates,
     dismissedYesterdayDates,
     openReview,
-    firebaseUid,
-    accountLinked,
-    linkPromptDismissedAt,
-    linkPromptDismissedResolvedCount,
-    snoozeLinkPrompt,
   } = useAppStore();
   const [now, setNow] = useState(() => new Date());
   const [freeSheetOpen, setFreeSheetOpen] = useState(false);
@@ -40,8 +31,10 @@ export default function TodayPage() {
   const yesterday = yesterdayId(timezone, now);
 
   useEffect(() => {
-    if (hydrated && !onboarded) router.replace("/onboarding/");
-  }, [hydrated, onboarded, router]);
+    // Full document navigation, not router.replace — see ClientProviders.tsx
+    // for why the SPA client-router transition is unreliable here.
+    if (hydrated && !onboarded) window.location.replace("/onboarding/");
+  }, [hydrated, onboarded]);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(new Date()), 60_000);
@@ -81,18 +74,18 @@ export default function TodayPage() {
   const activePending = activeEntries.filter((entry) => entry.outcome === "pending");
   const activeComplete = activeEntries.length > 0 && activePending.length === 0;
   const todayComplete = todayEntries.length > 0 && todayEntries.every((entry) => entry.outcome !== "pending");
-  const showAccountPrompt = activeComplete && shouldShowAccountPrompt({
-    entries,
-    firebaseUid,
-    accountLinked,
-    dismissedAt: linkPromptDismissedAt,
-    dismissedResolvedCount: linkPromptDismissedResolvedCount,
-    now,
-  });
   const selectedQuestions = selectedQuestionKeys
     .map((key) => questionCatalog.find((question) => question.key === key))
     .filter((question): question is NonNullable<typeof question> => Boolean(question));
 
+  // Gating on `onboarded` too (not just `hydrated`) matters here: every
+  // fresh/never-onboarded session — which is every review run — otherwise
+  // paints the full "today" page (AnimatePresence, QuestionCard list, date
+  // formatting) for one frame right before the redirect effect below tears
+  // it down with a full document navigation. That's wasted render work
+  // sitting directly on the critical path to the redirect, exactly when
+  // Toss review's load-time budget is tightest. Keep it to the cheap
+  // loading screen until we know which page we're actually staying on.
   if (!hydrated || !onboarded) {
     return (
       <main className="loading-screen">
@@ -191,13 +184,6 @@ export default function TodayPage() {
           <span>오늘 떠오른 감 적기</span>
           <small>{freeToday.length}/3</small>
         </button>
-      )}
-      {showAccountPrompt && firebaseUid && (
-        <AccountLinkPrompt
-          uid={firebaseUid}
-          entries={entries}
-          onSnooze={snoozeLinkPrompt}
-        />
       )}
       <FreeEntrySheet open={freeSheetOpen} onClose={() => setFreeSheetOpen(false)} />
     </main>

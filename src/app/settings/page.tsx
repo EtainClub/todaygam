@@ -4,12 +4,10 @@ import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import Link from "next/link";
 import { useState } from "react";
 import { ArrowLeftIcon, BellIcon, CheckIcon, ChevronRightIcon, CloudIcon, DownloadIcon, TrashIcon } from "@/components/Icons";
-import { connectGoogleAccount } from "@/lib/firebase/auth";
-import { isFirebaseConfigured } from "@/lib/firebase/client";
+import { RecoveryKeyDialog } from "@/components/RecoveryKeyDialog";
 import {
   deleteUserDataRemote,
   fetchFullExportRemote,
-  migrateLocalEntriesRemote,
 } from "@/lib/firebase/sync";
 import { useAppStore } from "@/lib/store";
 import { normalizeQuarterHour } from "@/lib/day";
@@ -26,17 +24,16 @@ export default function SettingsPage() {
     questionCatalog,
     setTimezone,
     firebaseUid,
-    accountLinked,
+    recoveryKeyIssuedAt,
     deleteAllData,
   } = useAppStore();
   const [questionEditor, setQuestionEditor] = useState(false);
   const [draftQuestions, setDraftQuestions] = useState(selectedQuestionKeys);
   const [draftQuestionLabels, setDraftQuestionLabels] = useState<Record<string, string>>({});
   const [deleteConfirm, setDeleteConfirm] = useState(false);
-  const [accountMessage, setAccountMessage] = useState("");
-  const [linkingAccount, setLinkingAccount] = useState(false);
   const [exportMessage, setExportMessage] = useState("");
   const [exporting, setExporting] = useState(false);
+  const [recoveryDialog, setRecoveryDialog] = useState<"issue" | "redeem" | null>(null);
   const canSaveQuestions =
     draftQuestions.length === 3 &&
     draftQuestions.every((key) => {
@@ -117,33 +114,6 @@ export default function SettingsPage() {
     }
   }
 
-  async function linkAccount() {
-    if (linkingAccount) return;
-    if (!isFirebaseConfigured()) {
-      setAccountMessage("Firebase 환경 키를 연결하면 Google 계정으로 전환할 수 있어요.");
-      return;
-    }
-    setLinkingAccount(true);
-    setAccountMessage("");
-    try {
-      const result = await connectGoogleAccount();
-      const migrated = await migrateLocalEntriesRemote(result.user.uid, entries);
-      setAccountMessage(
-        result.mode === "signed-in"
-          ? `기존 Google 계정으로 로그인했습니다${migrated ? ` · 이 기기의 기록 ${migrated}개를 옮겼어요` : ""}.`
-          : result.mode === "linked"
-            ? `Google 계정에 연결했습니다${migrated ? ` · 기록 ${migrated}개를 동기화했어요` : ""}.`
-            : migrated
-              ? `누락된 기록 ${migrated}개를 동기화했어요.`
-              : "Google 계정 동기화가 최신 상태입니다.",
-      );
-    } catch (error) {
-      setAccountMessage(error instanceof Error ? error.message : "계정 연결에 실패했어요.");
-    } finally {
-      setLinkingAccount(false);
-    }
-  }
-
   return (
     <main className="page page--settings">
       <header className="settings-heading"><Link href="/stats/" className="icon-button" aria-label="나의 감으로 돌아가기"><ArrowLeftIcon /></Link><h1>설정</h1><span /></header>
@@ -180,21 +150,24 @@ export default function SettingsPage() {
           <div className="account-row">
             <span className="settings-row__icon"><CloudIcon size={19} /></span>
             <span>
-              <strong>{accountLinked ? "Google 계정에 연결됨" : firebaseUid ? "익명으로 사용 중" : "이 기기에 저장 중"}</strong>
+              <strong>{recoveryKeyIssuedAt ? "복구 키로 보호됨" : firebaseUid ? "이 기기에서만 사용 중" : "이 기기에 저장 중"}</strong>
               <small>
-                {accountLinked
-                  ? "다른 기기에서도 같은 Google 계정으로 기록을 이어볼 수 있어요."
+                {recoveryKeyIssuedAt
+                  ? "복구 키가 있으면 다른 기기에서도 기록을 이어볼 수 있어요."
                   : firebaseUid
-                    ? "브라우저 데이터를 지우면 기록을 다시 찾기 어려워요."
+                    ? "복구 키를 만들어 두면 기기를 바꿔도 기록을 이어볼 수 있어요."
                     : "Firebase 키가 없어 로컬 모드로 동작합니다."}
               </small>
             </span>
-            <button type="button" disabled={linkingAccount} onClick={() => void linkAccount()}>
-              {linkingAccount ? "연결 중…" : accountLinked ? "동기화 확인" : "계정 연결"}
+            <button type="button" disabled={!firebaseUid} onClick={() => setRecoveryDialog("issue")}>
+              {recoveryKeyIssuedAt ? "새 복구 키 발급" : "복구 키 만들기"}
             </button>
           </div>
-          {accountMessage && <p className="settings-message">{accountMessage}</p>}
         </div>
+        <button type="button" className="settings-link-card" disabled={!firebaseUid} onClick={() => setRecoveryDialog("redeem")}>
+          <span><strong>다른 기기의 기록 불러오기</strong><small>발급받은 복구 키를 입력하세요.</small></span>
+          <ChevronRightIcon />
+        </button>
       </section>
 
       <section className="settings-group">
@@ -268,6 +241,9 @@ export default function SettingsPage() {
           </motion.div>
         )}
       </AnimatePresence>
+      {recoveryDialog && (
+        <RecoveryKeyDialog mode={recoveryDialog} onClose={() => setRecoveryDialog(null)} />
+      )}
     </main>
   );
 }

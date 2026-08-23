@@ -58,8 +58,6 @@ function validQuestion() {
   return {
     key: "rain",
     label: "비가 올까?",
-    yesLabel: "올 것 같다",
-    noLabel: "아닐 것 같다",
     order: 0,
     active: true,
     createdAt: serverTimestamp(),
@@ -216,11 +214,5 @@ describe("editable question labels", { concurrency: false }, () => {
     await assertSucceeds(setDoc(questionRef(db), validQuestion()));
     await assertFails(updateDoc(questionRef(db), { label: "" }));
     await assertFails(updateDoc(questionRef(db), { label: "가".repeat(41) }));
-  });
-
-  it("keeps the answer labels immutable", async () => {
-    const db = dbAs("alice");
-    await assertSucceeds(setDoc(questionRef(db), validQuestion()));
-    await assertFails(updateDoc(questionRef(db), { yesLabel: "무조건 온다" }));
   });
 });

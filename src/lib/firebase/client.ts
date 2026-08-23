@@ -1,7 +1,6 @@
 "use client";
 
 import { getApp, getApps, initializeApp, type FirebaseApp } from "firebase/app";
-import { initializeAppCheck, ReCaptchaV3Provider } from "firebase/app-check";
 import { connectAuthEmulator, getAuth, type Auth } from "firebase/auth";
 import {
   connectFirestoreEmulator,
@@ -11,6 +10,7 @@ import {
   persistentMultipleTabManager,
   type Firestore,
 } from "firebase/firestore";
+import { IS_TOSS_APP } from "../platform";
 
 export const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
@@ -33,7 +33,6 @@ export interface FirebaseClient {
 
 let client: FirebaseClient | null | undefined;
 let emulatorsConnected = false;
-let appCheckInitialized = false;
 
 export function isFirebaseConfigured() {
   return Boolean(
@@ -54,12 +53,17 @@ export function getFirebaseClient(): FirebaseClient | null {
 
   const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
   let db: Firestore;
-  try {
-    db = initializeFirestore(app, {
-      localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
-    });
-  } catch {
+  if (IS_TOSS_APP) {
+    // firestore/lite (next.config.ts alias) has no persistent cache to opt into.
     db = getFirestore(app);
+  } else {
+    try {
+      db = initializeFirestore(app, {
+        localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
+      });
+    } catch {
+      db = getFirestore(app);
+    }
   }
   const auth = getAuth(app);
 
@@ -67,21 +71,6 @@ export function getFirebaseClient(): FirebaseClient | null {
     connectAuthEmulator(auth, "http://127.0.0.1:9099", { disableWarnings: true });
     connectFirestoreEmulator(db, "127.0.0.1", 8080);
     emulatorsConnected = true;
-  }
-
-  const recaptchaKey = process.env.NEXT_PUBLIC_FIREBASE_APPCHECK_SITE_KEY;
-  if (recaptchaKey && !appCheckInitialized) {
-    if (
-      process.env.NODE_ENV !== "production" &&
-      process.env.NEXT_PUBLIC_FIREBASE_APPCHECK_DEBUG === "true"
-    ) {
-      Object.assign(globalThis, { FIREBASE_APPCHECK_DEBUG_TOKEN: true });
-    }
-    initializeAppCheck(app, {
-      provider: new ReCaptchaV3Provider(recaptchaKey),
-      isTokenAutoRefreshEnabled: true,
-    });
-    appCheckInitialized = true;
   }
 
   client = { app, auth, db };

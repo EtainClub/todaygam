@@ -2,13 +2,16 @@
 
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { resolvedEntryCount } from "./account-prompt";
 import { DEFAULT_QUESTION_KEYS, QUESTION_CATALOG } from "./catalog";
 import { minutesUntilMidnight, todayId } from "./day";
 import { createEntryRemote, resolveEntryRemote, softDeleteEntryRemote, updateOutcomeNoteRemote } from "./firebase/entries";
 import { computeHash } from "./hash";
+import {
+  clearSyncedQuestionLabels,
+  mergeQuestionLabels,
+  migratePendingQuestionLabels,
+} from "./question-preferences";
 import type {
-  AccountProfile,
   Answer,
   DaySummary,
   Entry,
@@ -25,26 +28,19 @@ interface AppState {
   timezone: string;
   questionCatalog: Question[];
   questionLabels: Record<string, string>;
+  pendingQuestionLabels: Record<string, string>;
   selectedQuestionKeys: string[];
   notify: NotifySettings;
   entries: Entry[];
   reviewDates: string[];
   dismissedYesterdayDates: string[];
   firebaseUid: string | null;
-  accountLinked: boolean;
-  accountProfile: AccountProfile | null;
-  linkPromptDismissedAt: string | null;
-  linkPromptDismissedResolvedCount: number;
+  recoveryKeyIssuedAt: string | null;
   remoteRollup: Rollup | null;
   remoteDays: DaySummary[];
   setHydrated: (hydrated: boolean) => void;
-  setAuthState: (
-    uid: string | null,
-    accountLinked: boolean,
-    accountProfile?: AccountProfile | null,
-  ) => void;
-  resetAfterLogout: () => void;
-  snoozeLinkPrompt: () => void;
+  setAuthState: (uid: string | null) => void;
+  setRecoveryKeyIssuedAt: (issuedAt: string | null) => void;
   setQuestionCatalog: (catalog: Question[]) => void;
   setRemoteRollup: (rollup: Rollup | null) => void;
   setRemoteDays: (days: DaySummary[]) => void;
@@ -55,7 +51,9 @@ interface AppState {
     notify: NotifySettings | null;
     selectedQuestionKeys: string[];
     questionLabels: Record<string, string>;
+    recoveryKeyIssuedAt: string | null;
   }) => void;
+  markQuestionLabelsSynced: (syncedLabels: Record<string, string>) => void;
   completeOnboarding: (keys: string[], notify: NotifySettings) => void;
   addFixedEntry: (questionKey: string, answer: Answer, strength: Strength) => Promise<Entry>;
   addFreeEntry: (text: string, strength: Strength) => Promise<Entry>;
@@ -75,10 +73,9 @@ type PersistedAppState = Pick<
   | "onboarded"
   | "timezone"
   | "questionLabels"
+  | "pendingQuestionLabels"
   | "selectedQuestionKeys"
   | "notify"
-  | "linkPromptDismissedAt"
-  | "linkPromptDismissedResolvedCount"
   | "entries"
   | "reviewDates"
   | "dismissedYesterdayDates"
@@ -140,44 +137,19 @@ export const useAppStore = create<AppState>()(
       timezone: "Asia/Seoul",
       questionCatalog: QUESTION_CATALOG,
       questionLabels: {},
+      pendingQuestionLabels: {},
       selectedQuestionKeys: DEFAULT_QUESTION_KEYS,
       notify: DEFAULT_NOTIFY,
       entries: [],
       reviewDates: [],
       dismissedYesterdayDates: [],
       firebaseUid: null,
-      accountLinked: false,
-      accountProfile: null,
-      linkPromptDismissedAt: null,
-      linkPromptDismissedResolvedCount: 0,
+      recoveryKeyIssuedAt: null,
       remoteRollup: null,
       remoteDays: [],
       setHydrated: (hydrated) => set({ hydrated }),
-      setAuthState: (firebaseUid, accountLinked, accountProfile = null) =>
-        set({ firebaseUid, accountLinked, accountProfile }),
-      resetAfterLogout: () =>
-        set({
-          onboarded: false,
-          questionCatalog: QUESTION_CATALOG,
-          questionLabels: {},
-          selectedQuestionKeys: DEFAULT_QUESTION_KEYS,
-          notify: DEFAULT_NOTIFY,
-          entries: [],
-          reviewDates: [],
-          dismissedYesterdayDates: [],
-          firebaseUid: null,
-          accountLinked: false,
-          accountProfile: null,
-          linkPromptDismissedAt: null,
-          linkPromptDismissedResolvedCount: 0,
-          remoteRollup: null,
-          remoteDays: [],
-        }),
-      snoozeLinkPrompt: () =>
-        set((state) => ({
-          linkPromptDismissedAt: new Date().toISOString(),
-          linkPromptDismissedResolvedCount: resolvedEntryCount(state.entries),
-        })),
+      setAuthState: (firebaseUid) => set({ firebaseUid }),
+      setRecoveryKeyIssuedAt: (recoveryKeyIssuedAt) => set({ recoveryKeyIssuedAt }),
       setQuestionCatalog: (questionCatalog) =>
         set((state) => ({
           questionCatalog: questionCatalog.map((question) => ({
@@ -195,10 +167,11 @@ export const useAppStore = create<AppState>()(
         }),
       applyRemotePreferences: (values) =>
         set((state) => {
-          const questionLabels = {
-            ...state.questionLabels,
-            ...values.questionLabels,
-          };
+          const questionLabels = mergeQuestionLabels(
+            state.questionLabels,
+            values.questionLabels,
+            state.pendingQuestionLabels,
+          );
           return {
             onboarded: values.onboarded || state.onboarded,
             timezone: values.timezone || state.timezone,
@@ -212,7 +185,18 @@ export const useAppStore = create<AppState>()(
               ...question,
               label: questionLabels[question.key] ?? question.label,
             })),
+            recoveryKeyIssuedAt: values.recoveryKeyIssuedAt,
           };
+        }),
+      markQuestionLabelsSynced: (syncedLabels) =>
+        set((state) => {
+          const pendingQuestionLabels = clearSyncedQuestionLabels(
+            state.pendingQuestionLabels,
+            syncedLabels,
+          );
+          return pendingQuestionLabels === state.pendingQuestionLabels
+            ? state
+            : { pendingQuestionLabels };
         }),
       completeOnboarding: (selectedQuestionKeys, notify) =>
         set({ onboarded: true, selectedQuestionKeys, notify }),
@@ -303,6 +287,7 @@ export const useAppStore = create<AppState>()(
         set((state) => ({
           selectedQuestionKeys: keys,
           questionLabels: { ...state.questionLabels, ...normalizedLabels },
+          pendingQuestionLabels: { ...state.pendingQuestionLabels, ...normalizedLabels },
           questionCatalog: state.questionCatalog.map((question) => ({
             ...question,
             label: normalizedLabels[question.key] ?? question.label,
@@ -315,51 +300,43 @@ export const useAppStore = create<AppState>()(
           entries: [],
           reviewDates: [],
           dismissedYesterdayDates: [],
-          linkPromptDismissedAt: null,
-          linkPromptDismissedResolvedCount: 0,
+          recoveryKeyIssuedAt: null,
           onboarded: false,
           questionCatalog: QUESTION_CATALOG,
           questionLabels: {},
+          pendingQuestionLabels: {},
           selectedQuestionKeys: DEFAULT_QUESTION_KEYS,
           notify: DEFAULT_NOTIFY,
         }),
     }),
     {
       name: "oneulgam-v1",
-      version: 3,
+      version: 5,
       partialize: (state) => ({
         onboarded: state.onboarded,
         timezone: state.timezone,
         questionLabels: state.questionLabels,
+        pendingQuestionLabels: state.pendingQuestionLabels,
         selectedQuestionKeys: state.selectedQuestionKeys,
         notify: state.notify,
-        linkPromptDismissedAt: state.linkPromptDismissedAt,
-        linkPromptDismissedResolvedCount: state.linkPromptDismissedResolvedCount,
         entries: state.entries,
         reviewDates: state.reviewDates,
         dismissedYesterdayDates: state.dismissedYesterdayDates,
       }),
       migrate: (persistedState, version) => {
-        const persisted = persistedState as Partial<PersistedAppState> & {
-          linkPromptDismissed?: boolean;
-        };
+        const persisted = persistedState as Partial<PersistedAppState>;
         const entries = persisted.entries ?? [];
         const migrated: PersistedAppState = {
           onboarded: persisted.onboarded ?? false,
           timezone: persisted.timezone ?? "Asia/Seoul",
           questionLabels: persisted.questionLabels ?? {},
+          pendingQuestionLabels: migratePendingQuestionLabels(
+            version,
+            persisted.questionLabels ?? {},
+            persisted.pendingQuestionLabels,
+          ),
           selectedQuestionKeys: persisted.selectedQuestionKeys ?? DEFAULT_QUESTION_KEYS,
           notify: persisted.notify ?? DEFAULT_NOTIFY,
-          linkPromptDismissedAt:
-            version >= 2
-              ? persisted.linkPromptDismissedAt ?? null
-              : persisted.linkPromptDismissed
-                ? new Date().toISOString()
-                : null,
-          linkPromptDismissedResolvedCount:
-            version >= 2
-              ? persisted.linkPromptDismissedResolvedCount ?? 0
-              : resolvedEntryCount(entries),
           entries,
           reviewDates: persisted.reviewDates ?? [],
           dismissedYesterdayDates: persisted.dismissedYesterdayDates ?? [],
@@ -381,7 +358,38 @@ export const useAppStore = create<AppState>()(
           })),
         };
       },
-      onRehydrateStorage: () => (state) => state?.setHydrated(true),
+      onRehydrateStorage: () => (state, error) => {
+        // If storage access throws (restricted/sandboxed webviews, private
+        // mode, etc.) `state` comes back undefined and hydration never
+        // resolves — ClientProviders gates its first render on `hydrated`,
+        // so that left the app on a permanent blank screen. Always unblock
+        // rendering, even when local persistence failed, and fall back to
+        // in-memory defaults.
+        if (error) {
+          console.error("로컬 데이터를 불러오지 못했습니다.", error);
+          useAppStore.setState({ hydrated: true });
+          return;
+        }
+        state?.setHydrated(true);
+      },
     },
   ),
 );
+
+if (typeof window !== "undefined") {
+  // Belt-and-suspenders for onRehydrateStorage above: that callback covers a
+  // storage access that throws synchronously, but we can't rule out a Toss
+  // webview environment where the persist middleware's rehydration promise
+  // simply never settles (no error, no resolution) — e.g. a storage API
+  // that silently hangs rather than throwing. Without this, `hydrated`
+  // stays false forever and every gated screen (see page.tsx) is stuck
+  // showing its loading state indefinitely. Force it after a short grace
+  // period; this is a no-op in the normal case since rehydration typically
+  // completes within milliseconds.
+  window.setTimeout(() => {
+    if (!useAppStore.getState().hydrated) {
+      console.error("스토리지 초기화가 지연되어 강제로 진행합니다.");
+      useAppStore.setState({ hydrated: true });
+    }
+  }, 3000);
+}

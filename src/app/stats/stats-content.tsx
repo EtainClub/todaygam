@@ -8,7 +8,7 @@ import { BrandMark } from "@/components/BrandMark";
 import { CloseIcon, SettingsIcon } from "@/components/Icons";
 import { LiftBar } from "@/components/LiftBar";
 import { MonthCalendar } from "@/components/MonthCalendar";
-import { STRENGTH_LABEL } from "@/lib/catalog";
+import { ANSWER_FELT_LABEL, STRENGTH_LABEL } from "@/lib/catalog";
 import {
   calculateLift,
   normalizeQuestionRollup,
@@ -77,8 +77,8 @@ export function StatsContent() {
                 </div>
               ) : (
                 <>
-                  <div className="rate-row"><span>{catalog.yesLabel.replace("것 같다", "다고 느낀 날")}</span><strong>{Math.round((signal.pYes ?? 0) * 100)}%</strong><LiftBar value={signal.pYes ?? 0} /></div>
-                  <div className="rate-row"><span>{catalog.noLabel.replace("것 같다", "다고 느낀 날")}</span><strong>{Math.round((signal.pNo ?? 0) * 100)}%</strong><LiftBar value={signal.pNo ?? 0} muted /></div>
+                  <div className="rate-row"><span>{ANSWER_FELT_LABEL.yes}</span><strong>{Math.round((signal.pYes ?? 0) * 100)}%</strong><LiftBar value={signal.pYes ?? 0} /></div>
+                  <div className="rate-row"><span>{ANSWER_FELT_LABEL.no}</span><strong>{Math.round((signal.pNo ?? 0) * 100)}%</strong><LiftBar value={signal.pNo ?? 0} muted /></div>
                   <div className="lift-result"><span>차이</span><strong>{Math.round((signal.lift ?? 0) * 100)}%p</strong><p className={`signal-message signal-message--${signal.state}`}>{signal.message}</p></div>
                 </>
               )}

@@ -2,7 +2,7 @@
 
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
-import { STRENGTH_LABEL } from "@/lib/catalog";
+import { ANSWER_LABEL, STRENGTH_LABEL } from "@/lib/catalog";
 import { formatKoreanTime } from "@/lib/day";
 import { useAppStore } from "@/lib/store";
 import type { Answer, Entry, Question, Strength } from "@/lib/types";
@@ -67,7 +67,7 @@ export function QuestionCard({
             onClick={() => setAnswer("yes")}
             aria-pressed={answer === "yes"}
           >
-            {question.yesLabel}{answer === "yes" && <CheckIcon size={16} />}
+            {ANSWER_LABEL.yes}{answer === "yes" && <CheckIcon size={16} />}
           </button>
           <button
             type="button"
@@ -75,7 +75,7 @@ export function QuestionCard({
             onClick={() => setAnswer("no")}
             aria-pressed={answer === "no"}
           >
-            {question.noLabel}{answer === "no" && <CheckIcon size={16} />}
+            {ANSWER_LABEL.no}{answer === "no" && <CheckIcon size={16} />}
           </button>
         </div>
         <AnimatePresence initial={false}>
@@ -97,9 +97,7 @@ export function QuestionCard({
   if (!entry) return null;
   const title = entry.type === "fixed" ? entry.questionLabel : entry.text;
   const lockedAnswer = entry.type === "fixed"
-    ? entry.answer === "yes"
-      ? question?.yesLabel ?? "그럴 것 같다"
-      : question?.noLabel ?? "아닐 것 같다"
+    ? ANSWER_LABEL[entry.answer as Answer]
     : "자유롭게 남긴 감";
   const isResolved = entry.outcome !== "pending";
 

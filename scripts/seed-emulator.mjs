@@ -8,9 +8,9 @@ if (!getApps().length) initializeApp({ projectId });
 const db = getFirestore();
 const uid = "demo-user";
 const questions = [
-  { key: "contact_unexpected", label: "예상하지 못한 연락이 올까?", yesLabel: "올 것 같다", noLabel: "아닐 것 같다" },
-  { key: "schedule_change", label: "일정 하나가 바뀔까?", yesLabel: "바뀔 것 같다", noLabel: "아닐 것 같다" },
-  { key: "rain", label: "비가 올까?", yesLabel: "올 것 같다", noLabel: "아닐 것 같다" },
+  { key: "contact_unexpected", label: "예상하지 못한 연락이 올까?" },
+  { key: "schedule_change", label: "일정 하나가 바뀔까?" },
+  { key: "rain", label: "비가 올까?" },
 ];
 const strength = ["faint", "medium", "strong"];
 const now = new Date("2026-07-25T03:00:00.000Z");
@@ -40,7 +40,6 @@ batch.set(db.doc(`users/${uid}`), {
     unresolvedEnabled: true,
   },
   streak: { current: 60, longest: 60, lastCompletedDate: "2026-07-25" },
-  linkPromptShownAt: null,
   appVersion: "1.0.0",
   updatedAt: Timestamp.fromDate(now),
 });

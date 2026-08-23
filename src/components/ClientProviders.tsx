@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { usePathname, useRouter } from "next/navigation";
-import { accountProfileFromUser } from "@/lib/account-profile";
+import { usePathname } from "next/navigation";
 import { ensureAnonymousUser, observeAuth } from "@/lib/firebase/auth";
 import { isFirebaseConfigured } from "@/lib/firebase/client";
+import { IS_TOSS_APP } from "@/lib/platform";
 import {
   observeEntries,
   observeCurrentMonthDays,
@@ -19,7 +19,6 @@ import { useAppStore } from "@/lib/store";
 
 export function ClientProviders({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const router = useRouter();
   const timezone = useAppStore((state) => state.timezone);
   const hydrated = useAppStore((state) => state.hydrated);
   const onboarded = useAppStore((state) => state.onboarded);
@@ -34,11 +33,10 @@ export function ClientProviders({ children }: { children: React.ReactNode }) {
   const setRemoteDays = useAppStore((state) => state.setRemoteDays);
   const mergeRemoteEntries = useAppStore((state) => state.mergeRemoteEntries);
   const applyRemotePreferences = useAppStore((state) => state.applyRemotePreferences);
+  const markQuestionLabelsSynced = useAppStore((state) => state.markQuestionLabelsSynced);
   const resolveEntry = useAppStore((state) => state.resolveEntry);
   const firebaseConfigured = isFirebaseConfigured();
-  const [authReady, setAuthReady] = useState(!firebaseConfigured);
   const [preferencesReadyUid, setPreferencesReadyUid] = useState<string | null>(null);
-  const [entriesReadyKey, setEntriesReadyKey] = useState<string | null>(null);
 
   useEffect(() => {
     if (!firebaseConfigured) return;
@@ -47,31 +45,20 @@ export function ClientProviders({ children }: { children: React.ReactNode }) {
     const unsubscribe = observeAuth((user) => {
       if (!mounted) return;
       if (user) {
-        setAuthState(
-          user.uid,
-          !user.isAnonymous,
-          user.isAnonymous ? null : accountProfileFromUser(user),
-        );
-        setAuthReady(true);
+        setAuthState(user.uid);
         return;
       }
       if (creatingAnonymousUser) return;
       creatingAnonymousUser = true;
-      setAuthReady(false);
-      setAuthState(null, false);
+      setAuthState(null);
       void ensureAnonymousUser(timezone)
         .then((anonymousUser) => {
           if (!mounted) return;
-          setAuthState(
-            anonymousUser?.uid ?? null,
-            Boolean(anonymousUser && !anonymousUser.isAnonymous),
-          );
-          setAuthReady(true);
+          setAuthState(anonymousUser?.uid ?? null);
         })
         .catch((error) => {
           if (!mounted) return;
           console.error("사용자 세션을 준비하지 못했습니다.", error);
-          setAuthReady(true);
         })
         .finally(() => {
           creatingAnonymousUser = false;
@@ -104,11 +91,7 @@ export function ClientProviders({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!firebaseUid) return;
-    const readyKey = `${firebaseUid}:${timezone}`;
-    const stopEntries = observeEntries(firebaseUid, timezone, (entries) => {
-      mergeRemoteEntries(entries);
-      setEntriesReadyKey(readyKey);
-    });
+    const stopEntries = observeEntries(firebaseUid, timezone, mergeRemoteEntries);
     const stopRollup = observeRollup(firebaseUid, setRemoteRollup);
     const stopDays = observeCurrentMonthDays(firebaseUid, timezone, setRemoteDays);
     const stopConfig = observeSystemConfig(setQuestionCatalog);
@@ -122,6 +105,11 @@ export function ClientProviders({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!hydrated || !firebaseUid || preferencesReadyUid !== firebaseUid) return;
+    const syncedQuestionLabels = Object.fromEntries(
+      selectedQuestionKeys.flatMap((key) =>
+        questionLabels[key] ? [[key, questionLabels[key]] as const] : [],
+      ),
+    );
     void syncPreferencesRemote({
       uid: firebaseUid,
       timezone,
@@ -130,11 +118,15 @@ export function ClientProviders({ children }: { children: React.ReactNode }) {
       selectedQuestionKeys,
       questionLabels,
       catalog,
-    });
+    })
+      .then(() => markQuestionLabelsSynced(syncedQuestionLabels))
+      .catch((error) => {
+        console.error("원격 설정을 저장하지 못했습니다.", error);
+      });
     if (notify.morningEnabled || notify.eveningEnabled) {
       void registerMessagingToken(firebaseUid);
     }
-  }, [catalog, firebaseUid, hydrated, notify, onboarded, preferencesReadyUid, questionLabels, selectedQuestionKeys, timezone]);
+  }, [catalog, firebaseUid, hydrated, markQuestionLabelsSynced, notify, onboarded, preferencesReadyUid, questionLabels, selectedQuestionKeys, timezone]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -144,36 +136,53 @@ export function ClientProviders({ children }: { children: React.ReactNode }) {
   }, [hydrated, resolveEntry]);
 
   useEffect(() => {
+    // The PWA service worker is browser/installed-app territory: Toss's
+    // review device loads the mini app fresh through its own webview shell,
+    // which doesn't need (and may sandbox/restrict) SW registration, cache
+    // storage, or the cross-origin importScripts() calls sw.js makes for
+    // Firebase Messaging. Registering it there risked stalling first load
+    // past the 20s budget and made the app read as inaccessible to review.
+    if (IS_TOSS_APP) return;
     if (!("serviceWorker" in navigator) || process.env.NODE_ENV !== "production") return;
     void navigator.serviceWorker.register("/sw.js", { scope: "/" });
   }, []);
 
-  const firebaseReady =
-    !firebaseConfigured ||
-    (authReady && (!firebaseUid || preferencesReadyUid === firebaseUid));
-  const routeReady = hydrated && firebaseReady;
+  // Render as soon as local (persisted) state is hydrated — Firebase auth/sync
+  // run in the background and merge in as they resolve. Blocking first paint
+  // on those network round-trips left the screen blank for however long
+  // Firebase took, which Toss app review flagged as both "app inaccessible"
+  // and a 20s+ load time.
   const onboardingRoute = pathname.startsWith("/onboarding");
-  const redirectTarget = routeReady
+  const redirectTarget = hydrated
     ? !onboarded && !onboardingRoute
       ? "/onboarding/"
       : onboarded && onboardingRoute
         ? "/"
         : null
     : null;
-  const entriesReady =
-    !firebaseUid || entriesReadyKey === `${firebaseUid}:${timezone}`;
 
   useEffect(() => {
-    if (redirectTarget) router.replace(redirectTarget);
-  }, [redirectTarget, router]);
+    // Next's client-side router needs to fetch the target route's RSC
+    // flight payload (out/web/**/index.txt in the static export) before it
+    // can transition — on the developer's device this never fires, since
+    // onboarding is already persisted from prior testing, but Toss review
+    // always opens a fresh, never-onboarded session and hits this redirect
+    // on every run. That extra fetch appears to stall or fail inside the
+    // Toss webview's resource loader, which is consistent with review
+    // reporting both a dead main scheme and a 20s+ load. A full document
+    // navigation uses the exact same request path that already
+    // successfully loaded the current page, so it's the reliable choice
+    // here even though it costs a full reload instead of an SPA transition.
+    if (redirectTarget) window.location.replace(redirectTarget);
+  }, [redirectTarget]);
 
-  if (
-    !routeReady ||
-    redirectTarget ||
-    (onboarded && !onboardingRoute && !entriesReady)
-  ) {
-    return null;
-  }
+  // Never render nothing: a blank frame while waiting on hydration/redirect
+  // is exactly what Toss review's "main scheme inaccessible" / 20s+ load
+  // checks flag, and a first-time (never-onboarded) session — which is what
+  // every review run is — always passes through redirectTarget on its way
+  // to /onboarding/. Painting the current route's real content immediately
+  // and letting the redirect effect take over in the background means the
+  // very first frame is never empty, even during that transition.
 
   return children;
 }

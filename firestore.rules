@@ -28,6 +28,10 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    match /recoveryKeys/{hash} {
+      allow read, write: if false; // Cloud Functions (Admin SDK) only.
+    }
+
     match /users/{uid} {
       allow get: if isOwner(uid);
       allow list: if false;
@@ -51,15 +55,11 @@ service cloud.firestore {
           && inc().createdAt == request.time
           && inc().active == true
           && inc().order in [0, 1, 2]
-          && validQuestionLabel(inc().label)
-          && validQuestionLabel(inc().yesLabel)
-          && validQuestionLabel(inc().noLabel);
+          && validQuestionLabel(inc().label);
         allow update: if isOwner(uid)
           && changed().hasOnly(['active', 'deactivatedAt', 'order', 'label'])
           && inc().key == cur().key
-          && validQuestionLabel(inc().label)
-          && inc().yesLabel == cur().yesLabel
-          && inc().noLabel == cur().noLabel;
+          && validQuestionLabel(inc().label);
         allow delete: if false;
       }
 

@@ -1,6 +1,15 @@
 packages:
   - functions
 
+allowBuilds:
+  '@firebase/util': true
+  '@sentry/cli': true
+  '@swc/core': true
+  esbuild: true
+  protobufjs: true
+  sharp: false
+  unrs-resolver: false
+
 ignoredBuiltDependencies:
   - sharp
   - unrs-resolver

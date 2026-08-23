@@ -16,6 +16,7 @@ import {
   where,
   writeBatch,
   type DocumentData,
+  type DocumentSnapshot,
   type Timestamp,
 } from "firebase/firestore";
 import type { DaySummary, Entry, NotifySettings, Question, Rollup } from "../types";
@@ -25,6 +26,8 @@ import {
   getFirebaseClient,
 } from "./client";
 import { createEntryRemote, resolveEntryRemote } from "./entries";
+import { IS_TOSS_APP } from "../platform";
+import { onFirestoreWrite } from "./toss-live";
 
 function toIso(value: Timestamp | string | null | undefined, fallback: string | null = null) {
   if (typeof value === "string") return value;
@@ -63,24 +66,35 @@ export function observeEntries(uid: string, timezone: string, callback: (entries
     if (!groups.has("month") || !groups.has("unresolved")) return;
     callback(Array.from(groups.values()).flat());
   };
-  const stopMonth = onSnapshot(
-    query(collection(client.db, `users/${uid}/entries`), where("date", ">=", firstOfMonth)),
-    (snapshot) => {
-      groups.set("month", snapshot.docs.map((item) => mapEntry(item.id, item.data())));
-      emit();
-    },
+  const monthQuery = query(collection(client.db, `users/${uid}/entries`), where("date", ">=", firstOfMonth));
+  const unresolvedQuery = query(
+    collection(client.db, `users/${uid}/entries`),
+    where("outcome", "==", "pending"),
+    where("date", "<", firstOfMonth),
   );
-  const stopUnresolved = onSnapshot(
-    query(
-      collection(client.db, `users/${uid}/entries`),
-      where("outcome", "==", "pending"),
-      where("date", "<", firstOfMonth),
-    ),
-    (snapshot) => {
-      groups.set("unresolved", snapshot.docs.map((item) => mapEntry(item.id, item.data())));
-      emit();
-    },
-  );
+
+  if (IS_TOSS_APP) {
+    const refetch = () => {
+      void Promise.all([getDocs(monthQuery), getDocs(unresolvedQuery)]).then(
+        ([monthSnapshot, unresolvedSnapshot]) => {
+          groups.set("month", monthSnapshot.docs.map((item) => mapEntry(item.id, item.data())));
+          groups.set("unresolved", unresolvedSnapshot.docs.map((item) => mapEntry(item.id, item.data())));
+          emit();
+        },
+      );
+    };
+    refetch();
+    return onFirestoreWrite(refetch);
+  }
+
+  const stopMonth = onSnapshot(monthQuery, (snapshot) => {
+    groups.set("month", snapshot.docs.map((item) => mapEntry(item.id, item.data())));
+    emit();
+  });
+  const stopUnresolved = onSnapshot(unresolvedQuery, (snapshot) => {
+    groups.set("unresolved", snapshot.docs.map((item) => mapEntry(item.id, item.data())));
+    emit();
+  });
   return () => {
     stopMonth();
     stopUnresolved();
@@ -102,20 +116,26 @@ export function observeCurrentMonthDays(
   const value = (type: Intl.DateTimeFormatPartTypes) =>
     current.find((part) => part.type === type)?.value ?? "";
   const prefix = `${value("year")}-${value("month")}`;
-  return onSnapshot(
-    query(
-      collection(client.db, `users/${uid}/days`),
-      where("date", ">=", `${prefix}-01`),
-      where("date", "<=", `${prefix}-31`),
-    ),
-    (snapshot) => callback(snapshot.docs.map((item) => item.data() as DaySummary)),
+  const daysQuery = query(
+    collection(client.db, `users/${uid}/days`),
+    where("date", ">=", `${prefix}-01`),
+    where("date", "<=", `${prefix}-31`),
   );
+  const apply = (snapshot: { docs: { data: () => DocumentData }[] }) =>
+    callback(snapshot.docs.map((item) => item.data() as DaySummary));
+  if (IS_TOSS_APP) {
+    const refetch = () => void getDocs(daysQuery).then(apply);
+    refetch();
+    return onFirestoreWrite(refetch);
+  }
+  return onSnapshot(daysQuery, apply);
 }
 
 export function observeRollup(uid: string, callback: (rollup: Rollup | null) => void) {
   const client = getFirebaseClient();
   if (!client) return () => undefined;
-  return onSnapshot(doc(client.db, `users/${uid}/stats/rollup`), (snapshot) => {
+  const ref = doc(client.db, `users/${uid}/stats/rollup`);
+  const apply = (snapshot: DocumentSnapshot<DocumentData>) => {
     if (!snapshot.exists()) {
       callback(null);
       return;
@@ -138,14 +158,26 @@ export function observeRollup(uid: string, callback: (rollup: Rollup | null) => 
         strong: data.byStrength?.strong ?? { hit: 0, total: 0 },
       },
     });
-  });
+  };
+  if (IS_TOSS_APP) {
+    const refetch = () => void getDoc(ref).then(apply);
+    refetch();
+    // stats/rollup is written by a Cloud Functions trigger, not by the entry
+    // write itself — give the trigger a beat before trusting the refetch.
+    return onFirestoreWrite(() => {
+      refetch();
+      window.setTimeout(refetch, 2000);
+    });
+  }
+  return onSnapshot(ref, apply);
 }
 
 export function observeSystemConfig(callback: (questions: Question[]) => void) {
   const client = getFirebaseClient();
   if (!client) return () => undefined;
-  return onSnapshot(doc(client.db, "system/config"), (snapshot) => {
-    const catalog = snapshot.data()?.questionCatalog;
+  const ref = doc(client.db, "system/config");
+  const apply = (data: DocumentData | undefined) => {
+    const catalog = data?.questionCatalog;
     if (Array.isArray(catalog) && catalog.length > 0) {
       callback(
         (catalog as Question[])
@@ -153,7 +185,12 @@ export function observeSystemConfig(callback: (questions: Question[]) => void) {
           .sort((a, b) => a.order - b.order),
       );
     }
-  });
+  };
+  if (IS_TOSS_APP) {
+    void getDoc(ref).then((snapshot) => apply(snapshot.data()));
+    return () => undefined;
+  }
+  return onSnapshot(ref, (snapshot) => apply(snapshot.data()));
 }
 
 export async function loadRemotePreferences(uid: string): Promise<{
@@ -162,6 +199,7 @@ export async function loadRemotePreferences(uid: string): Promise<{
   notify: NotifySettings | null;
   selectedQuestionKeys: string[];
   questionLabels: Record<string, string>;
+  recoveryKeyIssuedAt: string | null;
 } | null> {
   const client = getFirebaseClient();
   if (!client) return null;
@@ -191,6 +229,7 @@ export async function loadRemotePreferences(uid: string): Promise<{
     notify: onboarded ? data.notify as NotifySettings | null : null,
     selectedQuestionKeys: onboarded ? selectedQuestionKeys : [],
     questionLabels: onboarded ? questionLabels : {},
+    recoveryKeyIssuedAt: toIso(data.recoveryKeyIssuedAt),
   };
 }
 
@@ -246,8 +285,6 @@ export async function syncPreferencesRemote(values: {
       {
         key,
         label: questionLabels[key] ?? previous?.label ?? question.label,
-        yesLabel: previous?.yesLabel ?? question.yesLabel,
-        noLabel: previous?.noLabel ?? question.noLabel,
         order,
         active: true,
         createdAt: previous?.createdAt ?? serverTimestamp(),
@@ -317,13 +354,18 @@ function serializeFirestoreValue(value: unknown): unknown {
 export async function fetchFullExportRemote(uid: string) {
   const client = getFirebaseClient();
   if (!client) return null;
+  // firestore/lite (Toss build) has no cache to bypass, and doesn't export
+  // the *FromServer variants at all — plain getDoc/getDocs already always
+  // hit the network there.
+  const readDoc = IS_TOSS_APP ? getDoc : getDocFromServer;
+  const readDocs = IS_TOSS_APP ? getDocs : getDocsFromServer;
   const [profile, questions, entries, days, rollup, audit] = await Promise.all([
-    getDocFromServer(doc(client.db, `users/${uid}`)),
-    getDocsFromServer(collection(client.db, `users/${uid}/questions`)),
-    getDocsFromServer(collection(client.db, `users/${uid}/entries`)),
-    getDocsFromServer(collection(client.db, `users/${uid}/days`)),
-    getDocFromServer(doc(client.db, `users/${uid}/stats/rollup`)),
-    getDocsFromServer(collection(client.db, `users/${uid}/audit`)),
+    readDoc(doc(client.db, `users/${uid}`)),
+    readDocs(collection(client.db, `users/${uid}/questions`)),
+    readDocs(collection(client.db, `users/${uid}/entries`)),
+    readDocs(collection(client.db, `users/${uid}/days`)),
+    readDoc(doc(client.db, `users/${uid}/stats/rollup`)),
+    readDocs(collection(client.db, `users/${uid}/audit`)),
   ]);
   return {
     profile: profile.exists() ? serializeFirestoreValue(profile.data()) : null,
@@ -344,14 +386,26 @@ export async function fetchFullExportRemote(uid: string) {
   };
 }
 
-export async function markLinkPromptShownRemote(uid: string) {
+export async function generateRecoveryKeyRemote(): Promise<{ code: string }> {
   const client = getFirebaseClient();
-  if (!client) return;
-  await setDoc(
-    doc(client.db, `users/${uid}`),
-    { linkPromptShownAt: serverTimestamp(), updatedAt: serverTimestamp() },
-    { merge: true },
+  if (!client) throw new Error("Firebase가 설정되지 않았습니다.");
+  const callable = httpsCallable<undefined, { code: string }>(
+    getFunctions(client.app, firebaseFunctionsRegion),
+    "generateRecoveryKey",
   );
+  const result = await callable();
+  return result.data;
+}
+
+export async function redeemRecoveryKeyRemote(code: string): Promise<{ token: string; uid: string }> {
+  const client = getFirebaseClient();
+  if (!client) throw new Error("Firebase가 설정되지 않았습니다.");
+  const callable = httpsCallable<{ code: string }, { token: string; uid: string }>(
+    getFunctions(client.app, firebaseFunctionsRegion),
+    "redeemRecoveryKey",
+  );
+  const result = await callable({ code });
+  return result.data;
 }
 
 export async function registerMessagingToken(uid: string) {

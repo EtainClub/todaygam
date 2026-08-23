@@ -2,17 +2,9 @@ export type Answer = "yes" | "no";
 export type Strength = "faint" | "medium" | "strong";
 export type Outcome = "pending" | "occurred" | "not_occurred" | "uncertain";
 
-export interface AccountProfile {
-  displayName: string | null;
-  email: string | null;
-  photoURL: string | null;
-}
-
 export interface Question {
   key: string;
   label: string;
-  yesLabel: string;
-  noLabel: string;
   defaultSelected: boolean;
   order: number;
   enabled: boolean;

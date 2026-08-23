@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "pretendard/dist/web/variable/pretendardvariable.css";
 import { AppShell } from "@/components/AppShell";
 import { ClientProviders } from "@/components/ClientProviders";
+import { IS_TOSS_APP } from "@/lib/platform";
 import "./globals.css";
 
 const siteName = "오늘감";
@@ -69,7 +70,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="ko">
+    <html lang="ko" data-toss={IS_TOSS_APP ? "1" : undefined}>
       <body>
         <ClientProviders>
           <AppShell>{children}</AppShell>
