@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { BrandMark } from "./BrandMark";
 import { GitHubIcon, StatsIcon, TodayIcon } from "./Icons";
+import { useAppStore } from "@/lib/store";
 
 const items = [
   { href: "/", label: "오늘", icon: TodayIcon },
@@ -12,7 +13,12 @@ const items = [
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  if (pathname.startsWith("/onboarding")) return <>{children}</>;
+  const hydrated = useAppStore((state) => state.hydrated);
+  const onboarded = useAppStore((state) => state.onboarded);
+  // The onboarding steps run without the app chrome. They render either on
+  // their own route or, on first run, in place at "/" — see OnboardingFlow.
+  const onboarding = pathname.startsWith("/onboarding") || (hydrated && !onboarded);
+  if (onboarding) return <>{children}</>;
 
   return (
     <div className="app-shell">

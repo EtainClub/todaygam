@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { usePathname } from "next/navigation";
 import { ensureAnonymousUser, observeAuth } from "@/lib/firebase/auth";
 import { isFirebaseConfigured } from "@/lib/firebase/client";
 import { IS_TOSS_APP } from "@/lib/platform";
@@ -18,7 +17,6 @@ import {
 import { useAppStore } from "@/lib/store";
 
 export function ClientProviders({ children }: { children: React.ReactNode }) {
-  const pathname = usePathname();
   const timezone = useAppStore((state) => state.timezone);
   const hydrated = useAppStore((state) => state.hydrated);
   const onboarded = useAppStore((state) => state.onboarded);
@@ -147,42 +145,13 @@ export function ClientProviders({ children }: { children: React.ReactNode }) {
     void navigator.serviceWorker.register("/sw.js", { scope: "/" });
   }, []);
 
-  // Render as soon as local (persisted) state is hydrated — Firebase auth/sync
-  // run in the background and merge in as they resolve. Blocking first paint
-  // on those network round-trips left the screen blank for however long
-  // Firebase took, which Toss app review flagged as both "app inaccessible"
-  // and a 20s+ load time.
-  const onboardingRoute = pathname.startsWith("/onboarding");
-  const redirectTarget = hydrated
-    ? !onboarded && !onboardingRoute
-      ? "/onboarding/"
-      : onboarded && onboardingRoute
-        ? "/"
-        : null
-    : null;
-
-  useEffect(() => {
-    // Next's client-side router needs to fetch the target route's RSC
-    // flight payload (out/web/**/index.txt in the static export) before it
-    // can transition — on the developer's device this never fires, since
-    // onboarding is already persisted from prior testing, but Toss review
-    // always opens a fresh, never-onboarded session and hits this redirect
-    // on every run. That extra fetch appears to stall or fail inside the
-    // Toss webview's resource loader, which is consistent with review
-    // reporting both a dead main scheme and a 20s+ load. A full document
-    // navigation uses the exact same request path that already
-    // successfully loaded the current page, so it's the reliable choice
-    // here even though it costs a full reload instead of an SPA transition.
-    if (redirectTarget) window.location.replace(redirectTarget);
-  }, [redirectTarget]);
-
-  // Never render nothing: a blank frame while waiting on hydration/redirect
-  // is exactly what Toss review's "main scheme inaccessible" / 20s+ load
-  // checks flag, and a first-time (never-onboarded) session — which is what
-  // every review run is — always passes through redirectTarget on its way
-  // to /onboarding/. Painting the current route's real content immediately
-  // and letting the redirect effect take over in the background means the
-  // very first frame is never empty, even during that transition.
+  // No routing happens here any more. This used to also redirect a
+  // never-onboarded session to /onboarding/ with window.location.replace,
+  // duplicating the same rule the pages carried — and inside the deployed
+  // Toss mini app that document navigation never landed, so the root page
+  // just reissued it forever. Onboarding is rendered in place by the root
+  // page now (see OnboardingFlow); providers only wire up auth and sync,
+  // both of which stay in the background and merge in as they resolve.
 
   return children;
 }

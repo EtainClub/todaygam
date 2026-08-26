@@ -8,6 +8,7 @@ import { FreeEntrySheet } from "@/components/FreeEntrySheet";
 import { CheckIcon, PlusIcon } from "@/components/Icons";
 import { QuestionCard } from "@/components/QuestionCard";
 import { YesterdayBanner } from "@/components/YesterdayBanner";
+import { OnboardingFlow } from "@/components/OnboardingFlow";
 import { formatKoreanDate, todayId, yesterdayId } from "@/lib/day";
 import { isHit } from "@/lib/stats";
 import { useAppStore } from "@/lib/store";
@@ -29,12 +30,6 @@ export default function TodayPage() {
   const [freeSheetOpen, setFreeSheetOpen] = useState(false);
   const date = todayId(timezone, now);
   const yesterday = yesterdayId(timezone, now);
-
-  useEffect(() => {
-    // Full document navigation, not router.replace — see ClientProviders.tsx
-    // for why the SPA client-router transition is unreliable here.
-    if (hydrated && !onboarded) window.location.replace("/onboarding/");
-  }, [hydrated, onboarded]);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(new Date()), 60_000);
@@ -78,21 +73,25 @@ export default function TodayPage() {
     .map((key) => questionCatalog.find((question) => question.key === key))
     .filter((question): question is NonNullable<typeof question> => Boolean(question));
 
-  // Gating on `onboarded` too (not just `hydrated`) matters here: every
-  // fresh/never-onboarded session — which is every review run — otherwise
-  // paints the full "today" page (AnimatePresence, QuestionCard list, date
-  // formatting) for one frame right before the redirect effect below tears
-  // it down with a full document navigation. That's wasted render work
-  // sitting directly on the critical path to the redirect, exactly when
-  // Toss review's load-time budget is tightest. Keep it to the cheap
-  // loading screen until we know which page we're actually staying on.
-  if (!hydrated || !onboarded) {
+  // Cheap placeholder until persisted state is back — this is also what the
+  // static export prerenders, so it's the very first thing painted.
+  if (!hydrated) {
     return (
       <main className="loading-screen">
         <BrandMark />
         <span className="loading-pulse" />
       </main>
     );
+  }
+
+  // First run renders onboarding right here instead of navigating to
+  // /onboarding/. A document navigation to a directory URL is what broke the
+  // published mini app (see OnboardingFlow) and it also put a second full
+  // page load on the critical path of every fresh session, which is exactly
+  // what Toss review's load-time check measures. Returning early also keeps
+  // the heavy "today" tree (AnimatePresence, QuestionCard list) unrendered.
+  if (!onboarded) {
+    return <OnboardingFlow />;
   }
 
   const hits = activeEntries.filter((entry) => isHit(entry) === true).length;

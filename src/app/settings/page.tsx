@@ -2,6 +2,7 @@
 
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { ArrowLeftIcon, BellIcon, CheckIcon, ChevronRightIcon, CloudIcon, DownloadIcon, TrashIcon } from "@/components/Icons";
 import { RecoveryKeyDialog } from "@/components/RecoveryKeyDialog";
@@ -14,6 +15,9 @@ import { normalizeQuarterHour } from "@/lib/day";
 
 export default function SettingsPage() {
   const reduceMotion = useReducedMotion();
+  // SPA navigation, never window.location: a document request for a
+  // directory URL doesn't resolve inside the deployed Toss mini app.
+  const router = useRouter();
   const {
     notify,
     updateNotify,
@@ -236,7 +240,7 @@ export default function SettingsPage() {
           <motion.div className="sheet-backdrop sheet-backdrop--center" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
             <motion.section className="confirm-dialog" role="alertdialog" aria-modal="true" initial={reduceMotion ? { opacity: 0 } : { opacity: 0, scale: 0.94 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.96 }}>
               <span className="danger-icon"><TrashIcon /></span><h2>모든 기록을 삭제할까요?</h2><p>{firebaseUid ? "이 기기와 Firebase에 저장된" : "이 기기에 저장된"} 질문, 감, 통계가 모두 사라집니다. 먼저 JSON으로 내보낼 수 있어요.</p>
-              <div><button type="button" className="secondary-button" onClick={() => setDeleteConfirm(false)}>취소</button><button type="button" className="danger-button" onClick={() => { void (async () => { if (firebaseUid) await deleteUserDataRemote(); deleteAllData(); setDeleteConfirm(false); window.location.href = "/onboarding/"; })(); }}>모두 삭제</button></div>
+              <div><button type="button" className="secondary-button" onClick={() => setDeleteConfirm(false)}>취소</button><button type="button" className="danger-button" onClick={() => { void (async () => { if (firebaseUid) await deleteUserDataRemote(); deleteAllData(); setDeleteConfirm(false); router.replace("/"); })(); }}>모두 삭제</button></div>
             </motion.section>
           </motion.div>
         )}
